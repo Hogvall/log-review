@@ -42,6 +42,7 @@ service "web" {
 
   env = {
     PORT              = port
+    DATABASE_URL      = postgres.main.url
     WCL_CLIENT_ID     = secret.wcl_client_id
     WCL_CLIENT_SECRET = secret.wcl_client_secret
   }

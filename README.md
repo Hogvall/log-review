@@ -9,6 +9,24 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
 3. `specific dev`. You'll be prompted for `wcl_client_id` and `wcl_client_secret`, which are stored in `specific.local` (gitignored).
 4. Create the database tables: `specific exec worker -- npm run migrate -w packages/db`
 
+## The website
+
+1. **Paste a link.** Links that already point at a fight or player skip ahead; `?fight=last` jumps to the last pull.
+2. **Pick a pull** (`/r/<code>`). Pulls are grouped by boss, with buttons for the best and the last pull.
+3. **Pick yourself** (`/r/<code>/<fight>`). Players are grouped by role. The site remembers your character and offers "Continue as …".
+4. **Player report** (`/r/<code>/<fight>/<actor>`, shareable). It shows:
+   - **Fix these first:** the top 3 findings.
+   - **Deaths:** a timeline with the raid wipe highlighted, plus what hit you in the last 10 seconds.
+   - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
+
+Deaths are grouped so that blame isn't unfair. When at least 25% of the raid (and at least 3 players) die within 5 seconds, that's the **wipe**:
+- Deaths before the wipe matter most.
+- The first deaths of the wipe are flagged as possible causes.
+- Deaths during the wipe are "probably not your fault".
+- Deaths after the wipe are ignored.
+
+Each analysis costs 2 WCL queries the first time, plus 1 to list the players. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
+
 ## Weekly benchmark snapshot
 
 Every Wednesday at 06:00 UTC (after both the US and EU resets), the `weekly-snapshot` cron starts a snapshot. The `worker` service then:
@@ -16,7 +34,7 @@ Every Wednesday at 06:00 UTC (after both the US and EU resets), the `weekly-snap
 1. Fetches the **top 15** players for every spec × boss × difficulty (Mythic and Heroic) in the current partition, including their gear and talents.
 2. Downloads each unique fight **once**. Logs never change, so later weeks reuse fights already downloaded. A fight gives metrics for all ~20 players in it, which are used for ability avoidability.
 3. Fetches buff uptimes for each ranked player and a cast timeline for each spec's #1.
-4. When the queue is empty, computes **median** benchmarks per spec (with 25th/75th percentiles) and data-driven avoidability per boss ability, then marks the snapshot `complete`.
+4. As soon as all of one boss and difficulty's fights are done, aggregates that boss, so Mythic data is usable on day one. When the whole queue is empty, it computes **median** benchmarks per spec (with 25th/75th percentiles) and data-driven avoidability per boss ability, then marks the snapshot `complete`.
 
 The newest `complete` snapshot is the one to compare against. The previous one stays available until the new one finishes. Specs with fewer than 5 ranked players are flagged `insufficient`.
 

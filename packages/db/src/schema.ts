@@ -154,3 +154,19 @@ export const encounterAbilities = pgTable(
   },
   (t) => [primaryKey({ name: "encounter_abilities_pk", columns: [t.snapshotId, t.encounterId, t.difficulty, t.abilityId] })],
 );
+
+/**
+ * WCL data fetched to analyze one player in one fight. Logs don't change, so shared links
+ * cost no API points. The analysis itself is recomputed per view so it picks up newer benchmarks.
+ */
+export const playerFightCache = pgTable(
+  "player_fight_cache",
+  {
+    reportCode: text("report_code").notNull(),
+    fightId: integer("fight_id").notNull(),
+    actorId: integer("actor_id").notNull(),
+    data: jsonb("data").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.reportCode, t.fightId, t.actorId] })],
+);

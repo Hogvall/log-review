@@ -2,7 +2,7 @@ import { createDb } from "@log-review/db";
 import { WclClient, credentialsFromEnv } from "@log-review/wcl";
 import { BudgetedClient } from "./budget";
 import { config } from "./config";
-import { finalizeSnapshots } from "./finalize";
+import { aggregateReadyGroups, finalizeSnapshots } from "./finalize";
 import { type FightJobPayload, runFightJob } from "./jobs/fight";
 import { type RankingsJobPayload, runRankingsJob } from "./jobs/rankings";
 import { claimJob, completeJob, failJob, resetStaleJobs } from "./queue";
@@ -52,7 +52,10 @@ while (!stopping) {
     await failJob(db, job, err);
   }
 
-  if (++processed % 50 === 0) console.log(`processed ${processed} jobs`);
+  if (++processed % 25 === 0) {
+    console.log(`processed ${processed} jobs`);
+    await aggregateReadyGroups(db).catch((err) => console.error("aggregation error:", err instanceof Error ? err.message : err));
+  }
 }
 
 await db.close();

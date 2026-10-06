@@ -10,4 +10,9 @@ export const config = {
   crawlPointLimit: num(process.env.CRAWL_POINT_LIMIT, 450),
   /** How many top players per spec, boss and difficulty to benchmark against. */
   topN: num(process.env.BENCHMARK_TOP_N, 15),
+  /** WCL difficulty IDs to crawl (5 = Mythic, 4 = Heroic). Jobs for other difficulties are skipped. */
+  difficulties: (process.env.CRAWL_DIFFICULTIES ?? "5")
+    .split(",")
+    .map((d) => Number(d.trim()))
+    .filter((d) => d > 0),
 };

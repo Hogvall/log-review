@@ -5,6 +5,7 @@
  */
 import { createDb, snapshots } from "@log-review/db";
 import { desc, eq } from "drizzle-orm";
+import { config } from "./config";
 import { aggregateSnapshot } from "./finalize";
 
 const week = process.argv[2];
@@ -18,5 +19,5 @@ const [snapshot] = await db
 if (!snapshot) throw new Error(week ? `No snapshot ${week}` : "No snapshots yet");
 
 console.log(`re-aggregating snapshot ${snapshot.week}`);
-await aggregateSnapshot(db, snapshot.id);
+await aggregateSnapshot(db, snapshot.id, config.difficulties);
 await db.close();

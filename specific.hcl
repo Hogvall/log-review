@@ -15,6 +15,11 @@ config "crawl_point_limit" {
   default = "450"
 }
 
+# Difficulties to crawl, as WCL IDs: 5 = Mythic, 4 = Heroic ("5,4" for both).
+config "crawl_difficulties" {
+  default = "5"
+}
+
 # Top N players per spec, boss and difficulty that benchmarks use (medians over these).
 config "benchmark_top_n" {
   default = "15"
@@ -64,6 +69,7 @@ service "worker" {
     RAID_ZONE_ID      = config.raid_zone_id
     CRAWL_POINT_LIMIT = config.crawl_point_limit
     BENCHMARK_TOP_N   = config.benchmark_top_n
+    CRAWL_DIFFICULTIES = config.crawl_difficulties
   }
 
   pre_deploy {
@@ -87,5 +93,6 @@ cron "weekly-snapshot" {
     WCL_CLIENT_SECRET = secret.wcl_client_secret
     RAID_ZONE_ID      = config.raid_zone_id
     BENCHMARK_TOP_N   = config.benchmark_top_n
+    CRAWL_DIFFICULTIES = config.crawl_difficulties
   }
 }

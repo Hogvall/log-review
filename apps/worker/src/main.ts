@@ -22,14 +22,17 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 }
 
 await resetStaleJobs(db);
-console.log(`worker started (zone ${config.zoneId}, top ${config.topN}, crawl limit ${config.crawlPointLimit} points/hour)`);
+console.log(
+  `worker started (zone ${config.zoneId}, top ${config.topN}, difficulties ${config.difficulties.join(",")}, crawl limit ${config.crawlPointLimit} points/hour)`,
+);
 
 let processed = 0;
+let skipped = 0;
 while (!stopping) {
   let job: Awaited<ReturnType<typeof claimJob>>;
   try {
     job = await claimJob(db);
-    if (!job) await finalizeSnapshots(db);
+    if (!job) await finalizeSnapshots(db, config.difficulties);
   } catch (err) {
     // e.g. the database is restarting; keep the worker alive and try again.
     console.error("queue error:", err instanceof Error ? err.message : err);
@@ -37,6 +40,14 @@ while (!stopping) {
   }
   if (!job) {
     await sleep(IDLE_MS);
+    continue;
+  }
+
+  // Difficulties we no longer crawl (e.g. Heroic after switching to Mythic-only) are skipped without API calls.
+  const difficulty = (job.payload as { difficulty?: number }).difficulty;
+  if (difficulty != null && !config.difficulties.includes(difficulty)) {
+    await completeJob(db, job);
+    if (++skipped % 500 === 0) console.log(`skipped ${skipped} jobs for difficulties not in ${config.difficulties.join(",")}`);
     continue;
   }
 
@@ -54,7 +65,7 @@ while (!stopping) {
 
   if (++processed % 25 === 0) {
     console.log(`processed ${processed} jobs`);
-    await aggregateReadyGroups(db).catch((err) => console.error("aggregation error:", err instanceof Error ? err.message : err));
+    await aggregateReadyGroups(db, config.difficulties).catch((err) => console.error("aggregation error:", err instanceof Error ? err.message : err));
   }
 }
 

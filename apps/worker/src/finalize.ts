@@ -12,12 +12,13 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
  * Aggregates each boss and difficulty of a running snapshot as soon as all of its jobs are finished,
  * so the site can use Mythic data on day one instead of waiting for the whole crawl.
  */
-export async function aggregateReadyGroups(db: Db) {
+export async function aggregateReadyGroups(db: Db, difficulties: number[]) {
   const ready = await db.execute<{ snapshot_id: number; encounter_id: number; difficulty: number }>(sql`
     SELECT DISTINCT r.snapshot_id, r.encounter_id, r.difficulty
     FROM ranking_entries r
     JOIN snapshots s ON s.id = r.snapshot_id AND s.status = 'running'
-    WHERE NOT EXISTS (
+    WHERE r.difficulty IN ${difficulties.length ? difficulties : [-1]}
+    AND NOT EXISTS (
       SELECT 1 FROM encounter_abilities e
       WHERE e.snapshot_id = r.snapshot_id AND e.encounter_id = r.encounter_id AND e.difficulty = r.difficulty
     )
@@ -33,7 +34,7 @@ export async function aggregateReadyGroups(db: Db) {
 }
 
 /** Completes every running snapshot whose jobs have all finished (done or permanently failed). */
-export async function finalizeSnapshots(db: Db) {
+export async function finalizeSnapshots(db: Db, difficulties: number[]) {
   const running = await db.select().from(snapshots).where(eq(snapshots.status, "running"));
   for (const snapshot of running) {
     const [open] = await db
@@ -43,18 +44,18 @@ export async function finalizeSnapshots(db: Db) {
     if (open && open.n > 0) continue;
 
     console.log(`snapshot ${snapshot.week}: all jobs finished, aggregating`);
-    await aggregateSnapshot(db, snapshot.id);
+    await aggregateSnapshot(db, snapshot.id, difficulties);
     await db.update(snapshots).set({ status: "complete", completedAt: new Date() }).where(eq(snapshots.id, snapshot.id));
     console.log(`snapshot ${snapshot.week}: complete`);
   }
 }
 
 /** Computes spec benchmarks and ability avoidability, one boss and difficulty at a time to bound memory. */
-export async function aggregateSnapshot(db: Db, snapshotId: number) {
+export async function aggregateSnapshot(db: Db, snapshotId: number, difficulties: number[]) {
   const groups = await db
     .selectDistinct({ encounterId: rankingEntries.encounterId, difficulty: rankingEntries.difficulty })
     .from(rankingEntries)
-    .where(eq(rankingEntries.snapshotId, snapshotId));
+    .where(and(eq(rankingEntries.snapshotId, snapshotId), inArray(rankingEntries.difficulty, difficulties)));
 
   for (const { encounterId, difficulty } of groups) await aggregateGroup(db, snapshotId, encounterId, difficulty);
 }

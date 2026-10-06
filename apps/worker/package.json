@@ -1,0 +1,19 @@
+{
+  "name": "@log-review/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "snapshot:start": "tsx src/start-snapshot.ts",
+    "snapshot:reaggregate": "tsx src/reaggregate.ts"
+  },
+  "dependencies": {
+    "@log-review/analysis": "*",
+    "@log-review/db": "*",
+    "@log-review/wcl": "*",
+    "drizzle-orm": "^0.45.3",
+    "tsx": "^4.23.15"
+  }
+}

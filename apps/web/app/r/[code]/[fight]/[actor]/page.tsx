@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DeathStoryView } from "@/components/death-story";
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { BuffTable, CooldownTimeline, PerfFindingCard, RotationTable, TargetTable } from "@/components/performance";
 import { RememberCharacter } from "@/components/player-picker";
@@ -42,7 +43,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   }
   if (!result) return <NotFoundPanel what="Player or pull" />;
 
-  const { report, fight, player, analysis, comparison, fixes, abilities, names, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
+  const { report, fight, player, analysis, deathStories, comparison, fixes, abilities, names, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
   const durationMs = fight.endTime - fight.startTime;
   const pull = report.fights.filter((f) => f.encounterID === fight.encounterID && f.difficulty === fight.difficulty && f.id <= fight.id).length;
   const spec = specLabel(player.specKey, player.classSlug);
@@ -51,6 +52,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   const amount = comparison?.amount?.player ?? null;
   const perfCount = (kinds: string[]) => comparison?.findings.filter((f) => kinds.includes(f.kind)).length ?? 0;
   const badge = (n: number) => (n ? String(n) : undefined);
+  const avoidabilityById = Object.fromEntries(analysis.damageTaken.map((a) => [a.abilityId, a.classification]));
 
   const tabs: Tab[] = [
     {
@@ -69,7 +71,13 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
             {relevantDeaths.length === 0 ? (
               <p className="text-sm text-emerald-300">You didn't die in this pull.</p>
             ) : (
-              relevantDeaths.map((d) => <DeathDetails key={d.order} death={d} abilities={abilities} wipe={analysis.wipe} kill={!!fight.kill} />)
+              relevantDeaths.map((d) =>
+                deathStories[d.order] ? (
+                  <DeathStoryView key={d.order} death={d} story={deathStories[d.order]!} abilities={abilities} wipe={analysis.wipe} kill={!!fight.kill} />
+                ) : (
+                  <DeathDetails key={d.order} death={d} abilities={abilities} wipe={analysis.wipe} kill={!!fight.kill} />
+                ),
+              )
             )}
           </div>
         </>
@@ -225,7 +233,14 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
           <div className="grid gap-3">
             {fixes.slice(0, 3).map((fix, i) =>
               fix.source === "report" ? (
-                <FindingCard key={i} finding={fix.finding} abilities={abilities} wipe={analysis.wipe} />
+                <FindingCard
+                  key={i}
+                  finding={fix.finding}
+                  abilities={abilities}
+                  wipe={analysis.wipe}
+                  stories={deathStories}
+                  avoidability={avoidabilityById}
+                />
               ) : (
                 <PerfFindingCard key={i} finding={fix.finding} abilities={abilities} amount={amount} />
               ),

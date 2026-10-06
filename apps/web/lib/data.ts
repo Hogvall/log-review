@@ -3,12 +3,15 @@ import {
   type CastsTableEntry,
   type Comparison,
   type DamageTakenEvent,
+  type DeathStory,
+  type HpEvent,
   type Fix,
   type PlayerReport,
   type RaidDeath,
   type SpecBenchmark,
   aliveTime,
   buffUptimes,
+  buildDeathStory,
   buildPlayerReport,
   compareToBenchmark,
   rankFixes,
@@ -84,6 +87,63 @@ interface CachedPlayerData {
   damageTaken: DamageTakenEvent[];
   /** Added in Phase 2; older cache rows are filled in on first view. */
   perf?: PerfData;
+  /** Damage and healing (with health) in the seconds before each death, keyed by death timestamp. */
+  deathWindows?: Record<string, { damage: HpEvent[]; heals: HpEvent[] }>;
+}
+
+const DEATH_WINDOW_MS = 15_000;
+
+const slimHp = (e: Record<string, unknown>): HpEvent => ({
+  timestamp: e.timestamp as number,
+  type: e.type as string,
+  sourceID: e.sourceID as number | undefined,
+  abilityGameID: e.abilityGameID as number | undefined,
+  amount: e.amount as number | undefined,
+  absorbed: e.absorbed as number | undefined,
+  overkill: e.overkill as number | undefined,
+  hitPoints: e.hitPoints as number | undefined,
+  maxHitPoints: e.maxHitPoints as number | undefined,
+});
+
+/** Builds a death story per death (by order). Fetches 2 queries per death the first time, then caches. */
+async function getDeathStories(
+  code: string,
+  fight: Fight,
+  actorId: number,
+  data: CachedPlayerData,
+  deaths: { order: number; timestamp: number; killingAbilityGameID?: number }[],
+): Promise<Record<number, DeathStory>> {
+  const windows = { ...data.deathWindows };
+  const missing = deaths.filter((d) => !windows[d.timestamp]);
+  if (missing.length) {
+    const wcl = getWcl();
+    for (const d of missing) {
+      const range = { id: fight.id, startTime: d.timestamp - DEATH_WINDOW_MS, endTime: d.timestamp + 1 };
+      // DamageTaken's sourceID is the player taking damage; Healing's targetID is the player being healed.
+      const damage = await getFightEvents(wcl, code, range, "DamageTaken", {
+        sourceID: actorId,
+        filterExpression: ENEMY_SOURCES,
+        includeResources: true,
+      });
+      const heals = await getFightEvents(wcl, code, range, "Healing", { targetID: actorId, includeResources: true });
+      windows[d.timestamp] = {
+        damage: damage.map(slimHp),
+        heals: heals.filter((h) => h.targetID === actorId).map(slimHp),
+      };
+    }
+    await getDb()
+      .update(playerFightCache)
+      .set({ data: { ...data, deathWindows: windows } })
+      .where(
+        and(eq(playerFightCache.reportCode, code), eq(playerFightCache.fightId, fight.id), eq(playerFightCache.actorId, actorId)),
+      );
+  }
+  const stories: Record<number, DeathStory> = {};
+  for (const d of deaths) {
+    const w = windows[d.timestamp];
+    if (w) stories[d.order] = buildDeathStory(d, w.damage, w.heals, fight.startTime, { windowMs: DEATH_WINDOW_MS });
+  }
+  return stories;
 }
 
 interface DamageDoneAbility {
@@ -247,6 +307,8 @@ export interface PlayerAnalysis {
   fight: Fight;
   player: { id: number; name: string; classSlug: string; specKey: string | null };
   analysis: PlayerReport;
+  /** Timestamped story of each death that mattered, by death order. */
+  deathStories: Record<number, DeathStory>;
   comparison: Comparison | null;
   /** Survival and DPS findings in one ranked list. */
   fixes: Fix[];
@@ -282,6 +344,14 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     damageTaken: data.damageTaken,
     avoidability: avoidability.map,
   });
+
+  const deathStories = await getDeathStories(
+    code,
+    fight,
+    actorId,
+    data,
+    analysis.deaths.filter((d) => d.category !== "after-wipe"),
+  );
 
   const durationMs = fight.endTime - fight.startTime;
   const perf = data.perf!;
@@ -324,6 +394,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     fight,
     player: { id: actorId, name: actor.name, classSlug: actor.subType, specKey },
     analysis,
+    deathStories,
     comparison,
     fixes: rankFixes(analysis, comparison),
     benchmarkWeek: bench?.week ?? null,

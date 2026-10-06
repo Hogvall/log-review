@@ -5,3 +5,4 @@ export * from "./stats";
 export * from "./deaths";
 export * from "./player-report";
 export * from "./compare";
+export * from "./death-story";

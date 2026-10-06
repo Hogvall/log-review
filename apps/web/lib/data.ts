@@ -4,6 +4,7 @@ import {
   type Comparison,
   type DamageTakenEvent,
   type DeathStory,
+  type DebuffEvent,
   type HpEvent,
   type Fix,
   type PlayerReport,
@@ -89,6 +90,8 @@ interface CachedPlayerData {
   perf?: PerfData;
   /** Damage and healing (with health) in the seconds before each death, keyed by death timestamp. */
   deathWindows?: Record<string, { damage: HpEvent[]; heals: HpEvent[] }>;
+  /** Boss debuffs on the player for the whole pull (stacks build up long before a death). */
+  bossDebuffs?: DebuffEvent[];
 }
 
 const DEATH_WINDOW_MS = 15_000;
@@ -105,17 +108,35 @@ const slimHp = (e: Record<string, unknown>): HpEvent => ({
   maxHitPoints: e.maxHitPoints as number | undefined,
 });
 
-/** Builds a death story per death (by order). Fetches 2 queries per death the first time, then caches. */
+/**
+ * Builds a death story per death (by order). The first time, fetches 2 queries per death plus 1 for
+ * the player's boss debuffs over the pull, then caches.
+ */
 async function getDeathStories(
   code: string,
   fight: Fight,
   actorId: number,
+  playerIds: Set<number>,
   data: CachedPlayerData,
   deaths: { order: number; timestamp: number; killingAbilityGameID?: number }[],
 ): Promise<Record<number, DeathStory>> {
   const windows = { ...data.deathWindows };
   const missing = deaths.filter((d) => !windows[d.timestamp]);
-  if (missing.length) {
+  let bossDebuffs = data.bossDebuffs;
+  if (deaths.length && !bossDebuffs) {
+    // In WCL's Debuffs view, sourceID is the player who has the debuff; drop debuffs other players put on them.
+    const events = await getFightEvents(getWcl(), code, fight, "Debuffs", { sourceID: actorId });
+    bossDebuffs = events
+      .filter((e) => e.targetID === actorId && !playerIds.has(e.sourceID ?? -1))
+      .map((e) => ({
+        timestamp: e.timestamp,
+        type: e.type,
+        sourceID: e.sourceID,
+        abilityGameID: e.abilityGameID,
+        stack: e.stack as number | undefined,
+      }));
+  }
+  if (missing.length || bossDebuffs !== data.bossDebuffs) {
     const wcl = getWcl();
     for (const d of missing) {
       const range = { id: fight.id, startTime: d.timestamp - DEATH_WINDOW_MS, endTime: d.timestamp + 1 };
@@ -133,7 +154,7 @@ async function getDeathStories(
     }
     await getDb()
       .update(playerFightCache)
-      .set({ data: { ...data, deathWindows: windows } })
+      .set({ data: { ...data, deathWindows: windows, bossDebuffs } })
       .where(
         and(eq(playerFightCache.reportCode, code), eq(playerFightCache.fightId, fight.id), eq(playerFightCache.actorId, actorId)),
       );
@@ -141,7 +162,7 @@ async function getDeathStories(
   const stories: Record<number, DeathStory> = {};
   for (const d of deaths) {
     const w = windows[d.timestamp];
-    if (w) stories[d.order] = buildDeathStory(d, w.damage, w.heals, fight.startTime, { windowMs: DEATH_WINDOW_MS });
+    if (w) stories[d.order] = buildDeathStory(d, w.damage, w.heals, fight.startTime, { windowMs: DEATH_WINDOW_MS }, bossDebuffs);
   }
   return stories;
 }
@@ -351,6 +372,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     code,
     fight,
     actorId,
+    new Set(report.players.map((p) => p.id)),
     data,
     analysis.deaths.filter((d) => d.category !== "after-wipe"),
   );

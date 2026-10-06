@@ -23,8 +23,10 @@ config "benchmark_top_n" {
 postgres "main" {}
 
 build "app" {
-  base    = "node"
-  command = "npm run build"
+  base = "node"
+  # Specific installs dependencies before copying the workspaces, so npm only sees the root
+  # package.json at that point. Install again with the whole monorepo present.
+  command = "npm ci && npm run build"
 }
 
 service "web" {

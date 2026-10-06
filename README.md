@@ -21,7 +21,8 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
      - **Big hits:** hits worth 20%+ of your health are flagged.
      - **Killing blow:** if it was just the last small tick, the summary says so.
      - **Health graph** across the last 15 seconds.
-     - **Event log:** timestamped, with your health after every hit and healing grouped between hits. The final drop is open; earlier events are collapsed.
+     - **Event log:** timestamped, with your health after every hit and healing grouped between hits. Each healing row shows who healed and with which spells. The final drop is open; earlier events are collapsed.
+     - **Who was healing you (for healers):** each healer's healing and shields during the final drop and over the last 15 seconds, their top spells, and any healing that heal-absorb effects ate.
    - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
 
 When the weekly snapshot has data for your spec on that boss, the report also compares you with the **top 15** (medians, with the middle half shown as a range):

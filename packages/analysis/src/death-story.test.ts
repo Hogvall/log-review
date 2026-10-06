@@ -44,6 +44,41 @@ describe("buildDeathStory on a real death", () => {
   });
 });
 
+describe("healer details", () => {
+  const story = buildDeathStory(cily.death, cily.damage, cily.heals, cily.fightStartTime);
+  const name = (id: number) => pull56.players.find((p) => p.id === id)?.name;
+
+  it("lists who healed you, biggest first, with burst and window totals", () => {
+    expect(story.healers.length).toBeGreaterThan(1);
+    for (let i = 1; i < story.healers.length; i++) {
+      expect(story.healers[i - 1]!.windowAmount).toBeGreaterThanOrEqual(story.healers[i]!.windowAmount);
+    }
+    for (const h of story.healers) expect(h.burstAmount).toBeLessThanOrEqual(h.windowAmount);
+    // Cilyxb is a Holy Paladin: most of their healing in the window was their own.
+    expect(name(story.healers[0]!.sourceId)).toBe("Cilyxb");
+  });
+
+  it("includes shields and keeps them apart from heals", () => {
+    expect(story.healers.some((h) => h.spells.some((sp) => sp.shield))).toBe(true);
+  });
+
+  it("totals the healing eaten by heal-absorbs", () => {
+    expect(story.healAbsorbed.window).toBeGreaterThan(0);
+    expect(story.healAbsorbed.burst).toBeLessThanOrEqual(story.healAbsorbed.window);
+  });
+
+  it("attributes every healing row to its sources", () => {
+    for (const e of story.entries) {
+      if (e.kind !== "healing") continue;
+      expect(e.sources.reduce((sum, src) => sum + src.amount, 0)).toBeCloseTo(e.amount);
+    }
+  });
+
+  it("burst healing matches the healers' burst totals", () => {
+    expect(story.healers.reduce((sum, h) => sum + h.burstAmount, 0)).toBeCloseTo(story.burst.healing);
+  });
+});
+
 describe("buildDeathStory edge cases", () => {
   const hit = (t: number, hp: number, amount = 100) => ({ timestamp: t, type: "damage", abilityGameID: 1, amount, hitPoints: hp, maxHitPoints: 1000 });
 

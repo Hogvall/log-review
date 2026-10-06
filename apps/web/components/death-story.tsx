@@ -1,7 +1,38 @@
-import type { DeathStory, PlayerDeath, StoryEntry, WipeEvent } from "@log-review/analysis";
+import type { DeathStory, HealSpell, PlayerDeath, StoryEntry, WipeEvent } from "@log-review/analysis";
 import type { AbilityInfo } from "./report";
 import { Ability, Badge, type Tone } from "./ui";
-import { beforeDeath, compact, fightTime, fightTimePrecise, ordinal, percent } from "@/lib/format";
+import { beforeDeath, classColor, compact, fightTime, fightTimePrecise, ordinal, percent } from "@/lib/format";
+
+/** Names and classes of everyone in the report, to show who healed whom. */
+export interface Actors {
+  names: Record<number, string>;
+  classes: Record<number, string>;
+  /** The player whose death this is, so self-healing reads "You". */
+  selfId: number;
+}
+
+function ActorName({ id, actors }: { id: number; actors: Actors }) {
+  if (id === actors.selfId) return <span className="text-slate-200">You</span>;
+  const name = actors.names[id];
+  if (!name) return <span className="text-slate-400">Other (pet or NPC)</span>;
+  return <span style={{ color: classColor(actors.classes[id] ?? "") }}>{name}</span>;
+}
+
+function SpellList({ spells, abilities, limit = 3 }: { spells: HealSpell[]; abilities: AbilityInfo; limit?: number }) {
+  return (
+    <>
+      {spells.slice(0, limit).map((sp, i) => (
+        <span key={`${sp.abilityId}${sp.shield}`}>
+          {i > 0 && ", "}
+          <Ability id={sp.abilityId} name={abilities[sp.abilityId]?.name} icon={abilities[sp.abilityId]?.icon} />{" "}
+          <span className="text-emerald-300/80">{compact(sp.amount)}</span>
+          {sp.shield && <span className="text-sky-300/80"> shield</span>}
+        </span>
+      ))}
+      {spells.length > limit && <span className="text-slate-500"> +{spells.length - limit} more</span>}
+    </>
+  );
+}
 
 const CATEGORY: Record<PlayerDeath["category"], { label: string; tone: Tone }> = {
   early: { label: "Before the wipe", tone: "red" },
@@ -60,7 +91,17 @@ function HealthBar({ hp }: { hp: number | null }) {
   );
 }
 
-function EventRows({ entries, abilities, maxHp }: { entries: StoryEntry[]; abilities: AbilityInfo; maxHp: number | null }) {
+function EventRows({
+  entries,
+  abilities,
+  maxHp,
+  actors,
+}: {
+  entries: StoryEntry[];
+  abilities: AbilityInfo;
+  maxHp: number | null;
+  actors: Actors;
+}) {
   return (
     <>
       {entries.map((e, i) => (
@@ -75,8 +116,21 @@ function EventRows({ entries, abilities, maxHp }: { entries: StoryEntry[]; abili
                 {e.big && maxHp && <span className="text-xs text-red-300">big hit ({percent(e.amount / maxHp)} of your health)</span>}
               </span>
             ) : (
-              <span className="text-emerald-300/90">
-                Healing{e.count > 1 ? ` (${e.count} heals)` : ""}
+              <span>
+                <span className="text-emerald-300/90">Healing{e.count > 1 ? ` (${e.count} heals)` : ""}</span>
+                <span className="mt-0.5 block text-xs text-slate-400">
+                  {e.sources.slice(0, 3).map((src, i) => (
+                    <span key={src.sourceId}>
+                      {i > 0 && " · "}
+                      <ActorName id={src.sourceId} actors={actors} />:{" "}
+                      {src.spells
+                        .slice(0, 2)
+                        .map((sp) => `${abilities[sp.abilityId]?.name ?? "Spell"}${sp.shield ? " (shield)" : ""} ${compact(sp.amount)}`)
+                        .join(", ")}
+                    </span>
+                  ))}
+                  {e.sources.length > 3 && ` · +${e.sources.length - 3} more`}
+                </span>
               </span>
             )}
           </td>
@@ -156,18 +210,72 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
   );
 }
 
+/** For healers: who healed or shielded this player, during the drop and over the whole window. */
+function HealerBreakdown({ story, abilities, actors }: { story: DeathStory; abilities: AbilityInfo; actors: Actors }) {
+  const seconds = (story.burst.beforeDeathMs / 1000).toFixed(1);
+  return (
+    <details open className="rounded-lg border border-line p-3">
+      <summary className="cursor-pointer font-medium text-slate-200">Who was healing you</summary>
+      {story.healers.length === 0 ? (
+        <p className="mt-2 text-sm text-red-300">No healing or shields landed on you in the last {story.windowMs / 1000} seconds.</p>
+      ) : (
+        <div className="-mx-3 mt-2 overflow-x-auto px-3">
+          <table className="w-full min-w-[480px] text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="py-1.5 pr-2 font-medium">Healer</th>
+                <th className="py-1.5 pr-2 text-right font-medium">Last {seconds}s</th>
+                <th className="py-1.5 pr-2 text-right font-medium">Last {story.windowMs / 1000}s</th>
+                <th className="py-1.5 font-medium">Spells</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line/60">
+              {story.healers.map((h) => (
+                <tr key={h.sourceId}>
+                  <td className="py-1.5 pr-2">
+                    <ActorName id={h.sourceId} actors={actors} />
+                  </td>
+                  <td className={`py-1.5 pr-2 text-right tabular-nums ${h.burstAmount ? "text-emerald-300" : "text-slate-600"}`}>
+                    {h.burstAmount ? `+${compact(h.burstAmount)}` : "–"}
+                  </td>
+                  <td className="py-1.5 pr-2 text-right tabular-nums text-emerald-300/80">+{compact(h.windowAmount)}</td>
+                  <td className="py-1.5 text-xs text-slate-400">
+                    <SpellList spells={h.spells} abilities={abilities} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {story.healAbsorbed.window > 0 && (
+        <p className="mt-2 text-sm text-amber-300/90">
+          {compact(story.healAbsorbed.window)} of healing on you was eaten by heal-absorb effects
+          {story.healAbsorbed.burst > 0 ? ` (${compact(story.healAbsorbed.burst)} during the drop)` : ""}, so it never restored any health.
+        </p>
+      )}
+      <p className="mt-2 text-xs text-slate-500">
+        "Last {seconds}s" is the final drop from {story.burst.startHp != null ? percent(story.burst.startHp) : "healthy"} to dead. Shields count as
+        healing because they soaked damage.
+      </p>
+    </details>
+  );
+}
+
 export function DeathStoryView({
   death,
   story,
   abilities,
   wipe,
   kill,
+  actors,
 }: {
   death: PlayerDeath;
   story: DeathStory;
   abilities: AbilityInfo;
   wipe: WipeEvent | null;
   kill: boolean;
+  actors: Actors;
 }) {
   const category =
     death.category === "early" && !wipe ? { label: kill ? "Before the kill" : "During the pull", tone: "red" as Tone } : CATEGORY[death.category];
@@ -200,7 +308,7 @@ export function DeathStoryView({
         <table className="w-full min-w-[420px] text-sm">
           {header}
           <tbody className="divide-y divide-line/60">
-            <EventRows entries={during} abilities={abilities} maxHp={story.maxHp} />
+            <EventRows entries={during} abilities={abilities} maxHp={story.maxHp} actors={actors} />
           </tbody>
         </table>
       </div>
@@ -213,12 +321,13 @@ export function DeathStoryView({
             <table className="w-full min-w-[420px] text-sm">
               {header}
               <tbody className="divide-y divide-line/60">
-                <EventRows entries={before} abilities={abilities} maxHp={story.maxHp} />
+                <EventRows entries={before} abilities={abilities} maxHp={story.maxHp} actors={actors} />
               </tbody>
             </table>
           </div>
         </details>
       )}
+      <HealerBreakdown story={story} abilities={abilities} actors={actors} />
     </div>
   );
 }

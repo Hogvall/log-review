@@ -61,13 +61,15 @@ Each analysis costs about 7 WCL queries the first time (deaths, damage taken, pl
 Every Wednesday at 06:00 UTC (after both the US and EU resets), the `weekly-snapshot` cron starts a snapshot. The `worker` service then:
 
 1. Fetches the **top 15** players for every spec × boss on the difficulties in `crawl_difficulties` (default `5`, Mythic only; `5,4` adds Heroic) in the current partition, including their gear and talents.
-2. Downloads each unique fight **once**. Logs never change, so later weeks reuse fights already downloaded. A fight gives metrics for all ~20 players in it, which are used for ability avoidability.
-3. Fetches buff uptimes for each ranked player and a cast timeline for each spec's #1.
-4. As soon as all of one boss and difficulty's fights are done, aggregates that boss, so Mythic data is usable on day one. When the whole queue is empty, it computes **median** benchmarks per spec (with 25th/75th percentiles) and data-driven avoidability per boss ability, then marks the snapshot `complete`.
+2. Downloads each unique fight **once**. Logs never change, so later weeks reuse fights already downloaded. Per fight:
+   - **2 queries for everyone:** active time and target split.
+   - **Damage taken** for only the first 60 fights of each boss and difficulty. That sample of ~1,200 players is enough for avoidability, and skipping the rest roughly halves the crawl.
+3. Per ranked player: their own Casts and Buffs tables (complete and named, unlike the all-player tables, which cut ability lists at 5). Each spec's #1 also gets a cast timeline.
+4. As soon as all of one boss and difficulty's fights are done, aggregates that boss, so Mythic data is usable on day one. When the whole queue is empty, it computes **median** benchmarks (with 25th/75th percentiles) per spec and data-driven avoidability per boss ability, then marks the snapshot `complete`.
 
 The newest `complete` snapshot is the one to compare against. The previous one stays available until the new one finishes. Specs with fewer than 5 ranked players are flagged `insufficient`.
 
-**API budget:** WCL allows 720 points/hour, and almost every query costs about 1 point no matter how much data it returns. The crawler stops for the hour once the client has spent `crawl_point_limit` (default 450), which leaves the rest for the website. A full snapshot is roughly 800 rankings queries plus ~8 per new fight and 1 per ranked player, which takes a few days of the week.
+**API budget:** WCL allows 720 points/hour, and almost every query costs about 1 point no matter how much data it returns. The crawler stops for the hour once the client has spent `crawl_point_limit` (default 450), which leaves the rest for the website. A full snapshot is roughly 800 rankings queries plus ~2 per new fight and ~2 per ranked player, about 40–45k points or ~4 days. The budget is shared by everything that uses the client (production, local dev and the website), so a local crawler pauses when production has used the hour's share.
 
 Useful commands:
 

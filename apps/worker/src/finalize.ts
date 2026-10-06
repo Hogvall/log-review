@@ -104,9 +104,11 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
     .select({ specKey: playerMetrics.specKey, metrics: playerMetrics.metrics })
     .from(playerMetrics)
     .where(
+      // Only fights where damage taken was downloaded (a sample per boss) can say what's avoidable.
       sql`(${playerMetrics.reportCode}, ${playerMetrics.fightId}) IN (
-        SELECT DISTINCT report_code, fight_id FROM ranking_entries
-        WHERE snapshot_id = ${snapshotId} AND encounter_id = ${encounterId} AND difficulty = ${difficulty}
+        SELECT DISTINCT r.report_code, r.fight_id FROM ranking_entries r
+        JOIN fights f ON f.report_code = r.report_code AND f.fight_id = r.fight_id AND f.has_damage_taken
+        WHERE r.snapshot_id = ${snapshotId} AND r.encounter_id = ${encounterId} AND r.difficulty = ${difficulty}
       )`,
     );
   const avoidability = encounterAvoidability(

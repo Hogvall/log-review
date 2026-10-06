@@ -136,7 +136,12 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
 
       {story.repeated.length > 0 && (
         <p className="mt-2 text-sm text-slate-400">
-          Kept hitting you throughout: {story.repeated.slice(0, 3).map((r) => `${name(r.abilityId)} (${r.hits}×)`).join(", ")}.
+          Hit you over and over in the last {story.windowMs / 1000} seconds:{" "}
+          {story.repeated
+            .slice(0, 3)
+            .map((r) => `${name(r.abilityId)} ${r.hits} times`)
+            .join(", ")}{" "}
+          (each hit or damage tick counts once).
         </p>
       )}
 

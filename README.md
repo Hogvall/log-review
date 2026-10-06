@@ -60,7 +60,7 @@ Each analysis costs about 7 WCL queries the first time (deaths, damage taken, pl
 
 Every Wednesday at 06:00 UTC (after both the US and EU resets), the `weekly-snapshot` cron starts a snapshot. The `worker` service then:
 
-1. Fetches the **top 15** players for every spec × boss × difficulty (Mythic and Heroic) in the current partition, including their gear and talents.
+1. Fetches the **top 15** players for every spec × boss on the difficulties in `crawl_difficulties` (default `5`, Mythic only; `5,4` adds Heroic) in the current partition, including their gear and talents.
 2. Downloads each unique fight **once**. Logs never change, so later weeks reuse fights already downloaded. A fight gives metrics for all ~20 players in it, which are used for ability avoidability.
 3. Fetches buff uptimes for each ranked player and a cast timeline for each spec's #1.
 4. As soon as all of one boss and difficulty's fights are done, aggregates that boss, so Mythic data is usable on day one. When the whole queue is empty, it computes **median** benchmarks per spec (with 25th/75th percentiles) and data-driven avoidability per boss ability, then marks the snapshot `complete`.

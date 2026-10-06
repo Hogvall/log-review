@@ -42,7 +42,7 @@ const classes = await getClasses(wcl);
 
 const encounterFilter = list(args.encounters)?.map(Number);
 const specFilter = list(args.specs);
-const difficulties = list(args.difficulties)?.map(Number) ?? [Difficulty.Mythic, Difficulty.Heroic];
+const difficulties = list(args.difficulties)?.map(Number) ?? config.difficulties;
 
 const encounters = zone.encounters.filter((e) => !encounterFilter || encounterFilter.includes(e.id));
 const specs = classes.flatMap((c) => c.specs.map((s) => ({ classSlug: c.slug, specSlug: s.slug })))

@@ -3,7 +3,8 @@ import { DeathStoryView } from "@/components/death-story";
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { BuffTable, CooldownTimeline, PerfFindingCard, RotationTable, TargetTable } from "@/components/performance";
 import { RememberCharacter } from "@/components/player-picker";
-import { AvoidabilityBadge, DeathDetails, DeathTimeline, DeathsSummary, FindingCard, RaidDeathsTable } from "@/components/report";
+import { DeathTimeline } from "@/components/death-timeline";
+import { AvoidabilityBadge, DeathDetails, DeathsSummary, FindingCard, RaidDeathsTable } from "@/components/report";
 import { type Tab, Tabs } from "@/components/tabs";
 import { Ability, Breadcrumbs, Section, linkClass } from "@/components/ui";
 import { type PlayerAnalysis, getPlayerAnalysis } from "@/lib/data";
@@ -82,7 +83,21 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
               ? `; the wipe was ${analysis.wipe.deaths} deaths between ${fightTime(analysis.wipe.startMs)} and ${fightTime(analysis.wipe.endMs)}.`
               : "."}
           </p>
-          <DeathTimeline deaths={analysis.raidDeaths} wipe={analysis.wipe} durationMs={durationMs} playerId={player.id} names={names} />
+          <DeathTimeline
+            deaths={analysis.raidDeaths}
+            wipe={analysis.wipe}
+            durationMs={durationMs}
+            playerId={player.id}
+            names={names}
+            classes={classes}
+            abilityNames={Object.fromEntries(
+              analysis.raidDeaths.flatMap((d) =>
+                d.killingAbilityGameID && abilities[d.killingAbilityGameID]
+                  ? [[d.killingAbilityGameID, abilities[d.killingAbilityGameID]!.name]]
+                  : [],
+              ),
+            )}
+          />
           <div className="mt-4">
             <RaidDeathsTable
               deaths={analysis.raidDeaths}

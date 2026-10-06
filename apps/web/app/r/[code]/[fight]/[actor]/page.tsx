@@ -5,7 +5,7 @@ import { BuffTable, CooldownTimeline, PerfFindingCard, RotationTable, TargetTabl
 import { RememberCharacter } from "@/components/player-picker";
 import { AvoidabilityBadge, DeathDetails, DeathTimeline, FindingCard } from "@/components/report";
 import { type Tab, Tabs } from "@/components/tabs";
-import { Ability, Badge, Breadcrumbs, Panel } from "@/components/ui";
+import { Ability, Breadcrumbs, Section, linkClass } from "@/components/ui";
 import { type PlayerAnalysis, getPlayerAnalysis } from "@/lib/data";
 import { classColor, compact, difficultyName, fightTime, percent, specLabel } from "@/lib/format";
 
@@ -15,21 +15,16 @@ const weekLabel = (week: string) => week.split("-test")[0];
 
 function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "good" | "bad" }) {
   return (
-    <div className="rounded-lg border border-line bg-panel px-4 py-3">
-      <div className="text-xs uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`text-xl font-semibold ${tone === "bad" ? "text-red-300" : tone === "good" ? "text-emerald-300" : "text-white"}`}>{value}</div>
-      {sub && <div className="text-xs text-slate-400">{sub}</div>}
+    <div className="border-l border-line px-4 py-2 first:border-l-0 first:pl-0">
+      <div className="text-[11px] uppercase tracking-[0.07em] text-faint">{label}</div>
+      <div className={`num text-xl ${tone === "bad" ? "text-dmg" : tone === "good" ? "text-heal" : "text-fg"}`}>{value}</div>
+      {sub && <div className="text-xs text-muted">{sub}</div>}
     </div>
   );
 }
 
-function NoBenchmark({ spec, boss }: { spec: string; boss: string }) {
-  return (
-    <p className="text-sm text-slate-400">
-      We don't have top-player data for {spec} on {boss} yet. It's rebuilt every week from the top 15 players of each spec, so check back
-      after the next update.
-    </p>
-  );
+function NoBenchmark() {
+  return <p className="py-2 text-sm text-muted">No top-player data for this spec and boss yet. It updates weekly.</p>;
 }
 
 export default async function PlayerPage({ params }: { params: Promise<{ code: string; fight: string; actor: string }> }) {
@@ -43,7 +38,26 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   }
   if (!result) return <NotFoundPanel what="Player or pull" />;
 
-  const { report, fight, player, analysis, deathStories, defensiveReviews, consumables, tips, bossGuide, comparison, fixes, abilities, names, classes, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
+  const {
+    report,
+    fight,
+    player,
+    analysis,
+    deathStories,
+    defensiveReviews,
+    consumables,
+    tips,
+    bossGuide,
+    comparison,
+    fixes,
+    abilities,
+    names,
+    classes,
+    snapshotWeek,
+    benchmarkWeek,
+    topPlayer,
+    playerCasts,
+  } = result;
   const durationMs = fight.endTime - fight.startTime;
   const pull = report.fights.filter((f) => f.encounterID === fight.encounterID && f.difficulty === fight.difficulty && f.id <= fight.id).length;
   const spec = specLabel(player.specKey, player.classSlug);
@@ -53,6 +67,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   const perfCount = (kinds: string[]) => comparison?.findings.filter((f) => kinds.includes(f.kind)).length ?? 0;
   const badge = (n: number) => (n ? String(n) : undefined);
   const avoidabilityById = Object.fromEntries(analysis.damageTaken.map((a) => [a.abilityId, a.classification]));
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   const tabs: Tab[] = [
     {
@@ -61,15 +76,15 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       badge: badge(analysis.deaths.filter((d) => d.category === "early" || d.category === "wipe-start").length),
       content: (
         <>
-          <p className="mb-3 text-sm text-slate-400">
+          <p className="mb-2 text-sm text-muted">
             {analysis.wipe
-              ? `${analysis.wipe.deaths} players died between ${fightTime(analysis.wipe.startMs)} and ${fightTime(analysis.wipe.endMs)}. Deaths before that matter most.`
-              : `${analysis.raidDeaths.length} deaths in this pull.`}
+              ? `Wipe: ${analysis.wipe.deaths} deaths between ${fightTime(analysis.wipe.startMs)} and ${fightTime(analysis.wipe.endMs)}.`
+              : plural(analysis.raidDeaths.length, "death") + " in this pull."}
           </p>
           <DeathTimeline deaths={analysis.raidDeaths} wipe={analysis.wipe} durationMs={durationMs} playerId={player.id} names={names} />
-          <div className="mt-5 space-y-3">
+          <div className="mt-4">
             {relevantDeaths.length === 0 ? (
-              <p className="text-sm text-emerald-300">You didn't die in this pull.</p>
+              <p className="border-t border-line py-3 text-sm text-heal">You didn't die.</p>
             ) : (
               relevantDeaths.map((d) =>
                 deathStories[d.order] ? (
@@ -100,47 +115,49 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       badge: badge(analysis.damageTaken.filter((a) => a.classification === "avoidable").length),
       content:
         analysis.damageTaken.length === 0 ? (
-          <p className="text-sm text-slate-400">No boss damage taken.</p>
+          <p className="py-2 text-sm text-muted">No boss damage taken.</p>
         ) : (
           <>
-            <p className="mb-3 text-sm text-slate-400">
-              Boss damage you took, compared with what top players take
-              {snapshotWeek ? ` (data from ${weekLabel(snapshotWeek)})` : ""}. Hover a label for details.
+            <p className="mb-2 text-sm text-muted">
+              Labels compare with top players{snapshotWeek ? ` (${weekLabel(snapshotWeek)})` : ""}.
               {bossGuide && (
                 <>
                   {" "}
-                  Tips summarized from{" "}
-                  <a href={bossGuide.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
-                    Mythic Trap's {bossGuide.name} guide ↗
+                  Notes from the{" "}
+                  <a href={bossGuide.url} target="_blank" rel="noreferrer" className={linkClass}>
+                    Mythic Trap guide
                   </a>
                   .
                 </>
               )}
             </p>
-            <div className="-mx-4 overflow-x-auto sm:mx-0">
-              <table className="w-full min-w-[480px] text-sm">
-                <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-2 font-medium sm:pl-0">Ability</th>
-                    <th className="px-2 py-2 font-medium">Type</th>
-                    <th className="px-2 py-2 text-right font-medium">Hits</th>
-                    <th className="px-2 py-2 text-right font-medium">Damage</th>
-                    <th className="px-4 py-2 text-right font-medium sm:pr-0">Share</th>
+            <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[520px] text-sm">
+                <thead className="text-left text-[11px] uppercase tracking-[0.07em] text-faint">
+                  <tr className="border-b border-line">
+                    <th className="pb-1 pr-3 font-medium">Ability</th>
+                    <th className="pb-1 pr-3 font-medium">Type</th>
+                    <th className="pb-1 pr-3 text-right font-medium">Hits</th>
+                    <th className="pb-1 pr-3 text-right font-medium">Damage</th>
+                    <th className="pb-1 text-right font-medium">Share</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-line">
+                <tbody>
                   {analysis.damageTaken.map((a) => (
-                    <tr key={a.abilityId} className={a.classification === "avoidable" ? "bg-red-500/5" : ""}>
-                      <td className="px-4 py-2 sm:pl-0">
+                    <tr
+                      key={a.abilityId}
+                      className={`border-b border-line/40 ${a.classification === "avoidable" ? "shadow-[inset_2px_0_0_var(--color-dmg)]" : ""}`}
+                    >
+                      <td className="py-1.5 pr-3 pl-2">
                         <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />
-                        {tips[a.abilityId] && <span className="mt-0.5 block max-w-md text-xs text-slate-400">{tips[a.abilityId]!.tip}</span>}
+                        {tips[a.abilityId] && <span className="mt-0.5 block max-w-md text-xs text-muted">{tips[a.abilityId]!.tip}</span>}
                       </td>
-                      <td className="px-2 py-2">
+                      <td className="py-1.5 pr-3">
                         <AvoidabilityBadge value={a.classification} zeroShare={a.zeroShare} />
                       </td>
-                      <td className="px-2 py-2 text-right text-slate-300">{a.hits}</td>
-                      <td className="px-2 py-2 text-right text-slate-300">{compact(a.total)}</td>
-                      <td className="px-4 py-2 text-right text-slate-400 sm:pr-0">{percent(a.share)}</td>
+                      <td className="num py-1.5 pr-3 text-right text-fg/85">{a.hits}</td>
+                      <td className="num py-1.5 pr-3 text-right text-fg/85">{compact(a.total)}</td>
+                      <td className="num py-1.5 text-right text-muted">{percent(a.share)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -153,19 +170,19 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       id: "rotation",
       label: "Rotation",
       badge: badge(perfCount(["low-casts", "missing-ability", "low-active-time"])),
-      content: comparison ? <RotationTable comparison={comparison} abilities={abilities} /> : <NoBenchmark spec={spec} boss={boss} />,
+      content: comparison ? <RotationTable comparison={comparison} abilities={abilities} /> : <NoBenchmark />,
     },
     {
       id: "buffs",
       label: "Buffs",
       badge: badge(perfCount(["low-buff-uptime"])),
-      content: comparison ? <BuffTable comparison={comparison} abilities={abilities} /> : <NoBenchmark spec={spec} boss={boss} />,
+      content: comparison ? <BuffTable comparison={comparison} abilities={abilities} /> : <NoBenchmark />,
     },
     {
       id: "targets",
       label: "Targets",
       badge: badge(perfCount(["low-target-share"])),
-      content: comparison ? <TargetTable comparison={comparison} /> : <NoBenchmark spec={spec} boss={boss} />,
+      content: comparison ? <TargetTable comparison={comparison} /> : <NoBenchmark />,
     },
     {
       id: "cooldowns",
@@ -174,7 +191,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
         comparison && topPlayer ? (
           <CooldownTimeline comparison={comparison} abilities={abilities} playerCasts={playerCasts} playerDurationMs={durationMs} top={topPlayer} />
         ) : (
-          <NoBenchmark spec={spec} boss={boss} />
+          <NoBenchmark />
         ),
     },
   ];
@@ -191,84 +208,65 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
         ]}
       />
 
-      <header>
-        <h1 className="text-2xl font-bold sm:text-3xl" style={{ color: classColor(player.classSlug) }}>
+      <header className="border-l-[3px] pl-3" style={{ borderColor: classColor(player.classSlug) }}>
+        <h1 className="text-2xl font-semibold leading-tight" style={{ color: classColor(player.classSlug) }}>
           {player.name}
         </h1>
-        <div className="mt-1 flex flex-wrap items-center gap-2 text-slate-300">
-          <span>{spec}</span>
-          <span className="text-slate-600">·</span>
-          <span>{boss}</span>
-          {fight.kill ? <Badge tone="green">Kill</Badge> : <Badge tone="amber">Wipe at {fight.bossPercentage?.toFixed(1)}%</Badge>}
-          <span className="text-sm text-slate-400">
-            Pull {pull} · {fightTime(durationMs)}
-          </span>
-        </div>
-        <p className="mt-1 text-sm text-slate-400">
-          Consumables this pull:{" "}
-          <span className={consumables.combatPotions ? "text-slate-200" : "text-amber-300"}>
-            {consumables.combatPotions} combat {consumables.combatPotions === 1 ? "potion" : "potions"}
-          </span>
-          {" · "}
-          {consumables.healthstones} {consumables.healthstones === 1 ? "healthstone" : "healthstones"}
-          {" · "}
-          {consumables.healthPotions} health {consumables.healthPotions === 1 ? "potion" : "potions"}
-          {consumables.manaPotions > 0 && ` · ${consumables.manaPotions} mana ${consumables.manaPotions === 1 ? "potion" : "potions"}`}
-          {consumables.combatPotions === 0 && <span className="text-amber-300"> · Most raiders use a combat potion before the pull and another with Bloodlust.</span>}
+        <p className="text-sm text-muted">
+          {spec} · {boss} · pull {pull} ·{" "}
+          {fight.kill ? <span className="text-heal">kill</span> : <span className="text-warn">wipe {fight.bossPercentage?.toFixed(1)}%</span>} ·{" "}
+          <span className="num">{fightTime(durationMs)}</span>
+        </p>
+        <p className="text-xs text-faint">
+          {plural(consumables.combatPotions, "combat potion")} · {plural(consumables.healthstones, "healthstone")} ·{" "}
+          {plural(consumables.healthPotions, "health potion")}
+          {consumables.manaPotions > 0 && ` · ${plural(consumables.manaPotions, "mana potion")}`}
+          {consumables.combatPotions === 0 && <span className="text-warn"> · no combat potion (most raiders use 2)</span>}
         </p>
       </header>
 
       {comparison && (
         <section>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="flex flex-wrap border-y border-line py-2">
             {comparison.amount && (
               <Stat
-                label="Your DPS"
+                label="DPS"
                 value={compact(comparison.amount.player)}
-                sub={`${percent(comparison.amount.ratio)} of top median (${compact(comparison.amount.median)})`}
+                sub={`${percent(comparison.amount.ratio)} of top median ${compact(comparison.amount.median)}`}
                 tone={comparison.amount.ratio < 0.85 ? "bad" : comparison.amount.ratio >= 1 ? "good" : undefined}
               />
             )}
             <Stat
               label="Casting"
               value={percent(comparison.activeTime.player)}
-              sub={`Top players: ${percent(comparison.activeTime.median)}`}
+              sub={`top ${percent(comparison.activeTime.median)}`}
               tone={comparison.activeTime.player < comparison.activeTime.p25 ? "bad" : undefined}
             />
-            <Stat
-              label="Item level"
-              value={comparison.itemLevel.player ?? "?"}
-              sub={`Top players: ${Math.round(comparison.itemLevel.median)}`}
-            />
-            <Stat label="Fight length" value={fightTime(comparison.durationMs.player)} sub={`Top kills: ${fightTime(comparison.durationMs.median)}`} />
+            <Stat label="Item level" value={comparison.itemLevel.player ?? "–"} sub={`top ${Math.round(comparison.itemLevel.median)}`} />
+            <Stat label="Length" value={fightTime(comparison.durationMs.player)} sub={`top kills ${fightTime(comparison.durationMs.median)}`} />
           </div>
-          <p className="mt-2 text-xs text-slate-500">
-            Compared with the top {comparison.sampleSize} {spec} players on {boss}
-            {benchmarkWeek ? ` (${weekLabel(benchmarkWeek)})` : ""}. They usually have better gear and shorter kills, so use the gaps
-            as direction, not exact targets.
-            {comparison.insufficient && " Only a few top players were found, so these comparisons are rough."}
-            {comparison.amount === null && " Healers are ranked by healing, so DPS isn't compared."}
+          <p className="mt-1.5 text-xs text-faint">
+            vs top {comparison.sampleSize} {spec} on {boss}
+            {benchmarkWeek ? `, ${weekLabel(benchmarkWeek)}` : ""}. Top players have better gear and shorter kills; read gaps as direction.
+            {comparison.insufficient && " Small sample."}
+            {comparison.amount === null && " Healers: DPS not compared."}
           </p>
         </section>
       )}
 
-      <section>
-        <h2 className="text-lg font-semibold text-white">Fix these first</h2>
-        <p className="mb-3 text-sm text-slate-400">The most important things from this pull. Estimated gains are rough.</p>
+      <Section title="Top issues" meta={fixes.length > 3 ? `${fixes.length - 3} more in the tabs` : undefined}>
         {fixes.length === 0 ? (
-          <Panel>
-            <p className="font-medium text-emerald-300">Clean pull!</p>
-            <p className="mt-1 text-sm text-slate-300">
-              You didn't die{analysis.hasAvoidabilityData ? ", took no avoidable damage" : ""}
-              {comparison ? (comparison.amount ? ", and kept up with top players" : ", and your casting looks in line with top players") : ""}.
-            </p>
-          </Panel>
+          <p className="pb-3 text-sm text-heal">
+            Nothing to flag: no deaths{analysis.hasAvoidabilityData ? ", no avoidable damage" : ""}
+            {comparison ? (comparison.amount ? ", on pace with top players" : ", casting in line with top players") : ""}.
+          </p>
         ) : (
-          <div className="grid gap-3">
+          <ol>
             {fixes.slice(0, 3).map((fix, i) =>
               fix.source === "report" ? (
                 <FindingCard
                   key={i}
+                  index={i + 1}
                   finding={fix.finding}
                   abilities={abilities}
                   wipe={analysis.wipe}
@@ -278,32 +276,26 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                   tips={tips}
                 />
               ) : (
-                <PerfFindingCard key={i} finding={fix.finding} abilities={abilities} amount={amount} />
+                <PerfFindingCard key={i} index={i + 1} finding={fix.finding} abilities={abilities} amount={amount} />
               ),
             )}
-          </div>
+          </ol>
         )}
-        {fixes.length > 3 && <p className="mt-2 text-sm text-slate-400">{fixes.length - 3} more in the tabs below.</p>}
         {!analysis.hasAvoidabilityData && !comparison && (
-          <p className="mt-3 rounded-lg border border-line bg-panel/50 p-3 text-sm text-slate-400">
-            We don't have top-player data for {boss} yet, so we can only show deaths. It's rebuilt every week from the top 15 players of
-            each spec.
-          </p>
+          <p className="pb-3 text-xs text-faint">No top-player data for {boss} yet (updated weekly), so only deaths are analyzed.</p>
         )}
-      </section>
+      </Section>
 
-      <Panel>
-        <Tabs tabs={tabs} />
-      </Panel>
+      <Tabs tabs={tabs} />
 
-      <p className="text-sm text-slate-500">
+      <p className="border-t border-line pt-3 text-xs">
         <a
-          className="hover:text-slate-300 hover:underline"
+          className={linkClass}
           href={`https://www.warcraftlogs.com/reports/${code}#fight=${fight.id}&source=${player.id}`}
           target="_blank"
           rel="noreferrer"
         >
-          Open this pull on Warcraft Logs ↗
+          Open on Warcraft Logs
         </a>
       </p>
     </div>

@@ -1,6 +1,6 @@
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { type PickerPlayer, PlayerPicker } from "@/components/player-picker";
-import { Badge, Breadcrumbs } from "@/components/ui";
+import { Breadcrumbs } from "@/components/ui";
 import { getFight, getPlayers } from "@/lib/data";
 import { difficultyName, fightTime } from "@/lib/format";
 
@@ -25,24 +25,23 @@ export default async function FightPage({ params }: { params: Promise<{ code: st
     list.map((p) => ({ id: p.id, name: p.name, classSlug: p.type, specKey: p.icon })).sort((a, b) => a.name.localeCompare(b.name));
 
   return (
-    <div>
-      <Breadcrumbs
-        items={[
-          { label: "Home", href: "/" },
-          { label: report.title, href: `/r/${code}` },
-          { label: `${fight.name} pull ${pull}` },
-        ]}
-      />
-      <div className="mb-6 flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold text-white">
-          {fight.name} <span className="text-slate-400">{difficultyName(fight.difficulty)}</span>
+    <div className="space-y-5">
+      <div>
+        <Breadcrumbs
+          items={[
+            { label: "Home", href: "/" },
+            { label: report.title, href: `/r/${code}` },
+            { label: `${fight.name} pull ${pull}` },
+          ]}
+        />
+        <h1 className="text-2xl font-semibold text-fg">
+          {fight.name} <span className="text-muted">{difficultyName(fight.difficulty)}</span>
         </h1>
-        {fight.kill ? <Badge tone="green">Kill</Badge> : <Badge tone="amber">Wipe at {fight.bossPercentage?.toFixed(1)}%</Badge>}
-        <span className="text-sm text-slate-400">
-          Pull {pull} · {fightTime(fight.endTime - fight.startTime)}
-        </span>
+        <p className="text-sm text-muted">
+          pull {pull} · {fight.kill ? <span className="text-heal">kill</span> : <span className="text-warn">wipe {fight.bossPercentage?.toFixed(1)}%</span>} ·{" "}
+          <span className="num">{fightTime(fight.endTime - fight.startTime)}</span>
+        </p>
       </div>
-      <p className="mb-4 text-slate-300">Who are you?</p>
       <PlayerPicker
         baseHref={`/r/${code}/${fightId}`}
         groups={[

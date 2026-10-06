@@ -25,10 +25,10 @@ export function ErrorPanel({ error }: { error: unknown }) {
   const { title, body } = MESSAGES[error.kind];
   return (
     <Panel>
-      <h1 className="text-lg font-semibold text-white">{title}</h1>
-      <p className="mt-1 text-slate-300">{body}</p>
-      <Link href="/" className="mt-4 inline-block text-accent hover:underline">
-        ← Try another log
+      <h1 className="text-lg font-semibold text-fg">{title}</h1>
+      <p className="mt-1 text-fg/85">{body}</p>
+      <Link href="/" className="mt-3 inline-block text-sm text-fg underline decoration-line underline-offset-4 hover:decoration-fg">
+        Try another log
       </Link>
     </Panel>
   );
@@ -37,9 +37,9 @@ export function ErrorPanel({ error }: { error: unknown }) {
 export function NotFoundPanel({ what }: { what: string }) {
   return (
     <Panel>
-      <h1 className="text-lg font-semibold text-white">{what} not found</h1>
-      <Link href="/" className="mt-4 inline-block text-accent hover:underline">
-        ← Start over
+      <h1 className="text-lg font-semibold text-fg">{what} not found</h1>
+      <Link href="/" className="mt-3 inline-block text-sm text-fg underline decoration-line underline-offset-4 hover:decoration-fg">
+        Start over
       </Link>
     </Panel>
   );

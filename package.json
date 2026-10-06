@@ -8,8 +8,9 @@
   "scripts": {
     "build": "npm run build -w apps/web",
     "test": "vitest run",
-    "typecheck": "tsc -p packages/wcl --noEmit && tsc -p apps/web --noEmit",
-    "spike": "tsx packages/wcl/scripts/spike.ts"
+    "typecheck": "tsc -p packages/wcl --noEmit && tsc -p packages/analysis --noEmit && tsc -p packages/db --noEmit && tsc -p apps/worker --noEmit && tsc -p apps/web --noEmit",
+    "spike": "tsx packages/wcl/scripts/spike.ts",
+    "measure": "tsx packages/wcl/scripts/measure-costs.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

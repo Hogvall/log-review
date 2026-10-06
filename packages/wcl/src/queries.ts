@@ -1,4 +1,4 @@
-import type { WclClient } from "./client";
+import type { WclQuerier } from "./client";
 
 export interface Fight {
   id: number;
@@ -57,7 +57,7 @@ const REPORT_OVERVIEW = /* GraphQL */ `
 `;
 
 /** Fetches the fights, players and ability names for a report. Boss pulls only (no trash). */
-export async function getReportOverview(client: WclClient, code: string): Promise<ReportOverview> {
+export async function getReportOverview(client: WclQuerier, code: string): Promise<ReportOverview> {
   const data = await client.query<{
     reportData: {
       report: {
@@ -96,10 +96,10 @@ export interface WclEvent {
 export type EventDataType = "Deaths" | "DamageTaken" | "Casts" | "Buffs" | "Debuffs" | "Healing" | "DamageDone";
 
 const EVENTS = /* GraphQL */ `
-  query Events($code: String!, $fightIDs: [Int]!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $sourceID: Int) {
+  query Events($code: String!, $fightIDs: [Int]!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $sourceID: Int, $filter: String) {
     reportData {
       report(code: $code) {
-        events(fightIDs: $fightIDs, dataType: $dataType, startTime: $startTime, endTime: $endTime, sourceID: $sourceID, limit: 10000) {
+        events(fightIDs: $fightIDs, dataType: $dataType, startTime: $startTime, endTime: $endTime, sourceID: $sourceID, filterExpression: $filter, limit: 10000) {
           data
           nextPageTimestamp
         }
@@ -110,11 +110,11 @@ const EVENTS = /* GraphQL */ `
 
 /** Fetches all events of one type for a fight, following WCL's pagination. */
 export async function getFightEvents(
-  client: WclClient,
+  client: WclQuerier,
   code: string,
   fight: Pick<Fight, "id" | "startTime" | "endTime">,
   dataType: EventDataType,
-  opts: { sourceID?: number } = {},
+  opts: { sourceID?: number; filterExpression?: string } = {},
 ): Promise<WclEvent[]> {
   const events: WclEvent[] = [];
   let startTime: number | null = fight.startTime;
@@ -128,12 +128,22 @@ export async function getFightEvents(
       startTime,
       endTime: fight.endTime,
       sourceID: opts.sourceID,
+      filter: opts.filterExpression,
     });
     const page = data.reportData.report.events;
     events.push(...page.data);
     startTime = page.nextPageTimestamp;
   }
   return events;
+}
+
+/** Every ability and aura in a report, with names and icons. */
+export async function getReportAbilities(client: WclQuerier, code: string): Promise<Ability[]> {
+  const data = await client.query<{ reportData: { report: { masterData: { abilities: Ability[] } } } }>(
+    `query($code: String!) { reportData { report(code: $code) { masterData { abilities { gameID name icon } } } } }`,
+    { code },
+  );
+  return data.reportData.report.masterData.abilities;
 }
 
 const RATE_LIMIT = /* GraphQL */ `
@@ -147,7 +157,7 @@ export interface RateLimit {
   pointsResetIn: number;
 }
 
-export async function getRateLimit(client: WclClient): Promise<RateLimit> {
+export async function getRateLimit(client: WclQuerier): Promise<RateLimit> {
   const data = await client.query<{ rateLimitData: RateLimit }>(RATE_LIMIT);
   return data.rateLimitData;
 }

@@ -28,8 +28,13 @@ export function credentialsFromEnv(env: Record<string, string | undefined> = pro
   return { clientId, clientSecret };
 }
 
+/** Anything that can run a WCL GraphQL query, e.g. a WclClient or a budget-limited wrapper. */
+export interface WclQuerier {
+  query<T>(query: string, variables?: Record<string, unknown>): Promise<T>;
+}
+
 /** Minimal WCL v2 GraphQL client using the client-credentials flow (public reports only). */
-export class WclClient {
+export class WclClient implements WclQuerier {
   private token?: { value: string; expiresAt: number };
 
   constructor(private readonly creds: WclCredentials) {}

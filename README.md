@@ -19,13 +19,24 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
    - **Deaths:** a timeline with the raid wipe highlighted, plus what hit you in the last 10 seconds.
    - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
 
+When the weekly snapshot has data for your spec on that boss, the report also compares you with the **top 15** (medians, with the middle half shown as a range):
+- **Header:** DPS vs the median, time spent casting, item level and fight length (top players usually have better gear and shorter kills).
+- **Rotation:** casts per minute of every ability that at least half of the top players use.
+- **Buffs:** uptime of your cooldowns. Procs and externals are shown separately, for context only.
+- **Targets:** your damage split across boss and adds.
+- **Cooldowns:** your cooldown casts on a timeline next to the #1 player's.
+
+Findings include an **estimated DPS gain** where it can be computed: missed casts × your damage per cast, or downtime × your DPS. Only abilities that do damage, or cooldowns whose buff top players keep up ≥15% of the fight, become findings, so blinks, defensives and potions don't crowd them out. Healers are compared on casts and buffs only, because their rankings use healing.
+
+"Fix these first" ranks everything in one list: deaths that mattered, then DPS findings worth at least 3%, then repeated avoidable damage, then smaller DPS findings.
+
 Deaths are grouped so that blame isn't unfair. When at least 25% of the raid (and at least 3 players) die within 5 seconds, that's the **wipe**:
 - Deaths before the wipe matter most.
 - The first deaths of the wipe are flagged as possible causes.
 - Deaths during the wipe are "probably not your fault".
 - Deaths after the wipe are ignored.
 
-Each analysis costs 2 WCL queries the first time, plus 1 to list the players. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
+Each analysis costs about 7 WCL queries the first time: deaths, damage taken, players, casts, buffs, damage done and active time. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
 
 ## Weekly benchmark snapshot
 

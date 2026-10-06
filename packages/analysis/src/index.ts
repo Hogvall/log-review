@@ -4,3 +4,4 @@ export * from "./specs";
 export * from "./stats";
 export * from "./deaths";
 export * from "./player-report";
+export * from "./compare";

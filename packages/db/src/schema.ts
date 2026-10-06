@@ -86,6 +86,8 @@ export const fights = pgTable(
     encounterId: integer("encounter_id").notNull(),
     difficulty: integer("difficulty").notNull(),
     durationMs: integer("duration_ms").notNull(),
+    /** Damage taken was downloaded for this fight (a sample per boss feeds avoidability). */
+    hasDamageTaken: boolean("has_damage_taken").notNull().default(false),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.reportCode, t.fightId] })],

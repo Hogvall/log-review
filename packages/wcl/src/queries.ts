@@ -142,15 +142,6 @@ export async function getFightEvents(
   return events;
 }
 
-/** Every ability and aura in a report, with names and icons. */
-export async function getReportAbilities(client: WclQuerier, code: string): Promise<Ability[]> {
-  const data = await client.query<{ reportData: { report: { masterData: { abilities: Ability[] } } } }>(
-    `query($code: String!) { reportData { report(code: $code) { masterData { abilities { gameID name icon } } } } }`,
-    { code },
-  );
-  return data.reportData.report.masterData.abilities;
-}
-
 const RATE_LIMIT = /* GraphQL */ `
   query { rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn } }
 `;

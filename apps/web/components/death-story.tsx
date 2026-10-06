@@ -104,7 +104,18 @@ function EventRows({
 }) {
   return (
     <>
-      {entries.map((e, i) => (
+      {entries.map((e, i) =>
+        e.kind === "debuff" ? (
+          <tr key={i}>
+            <td className="py-1 pr-2 tabular-nums text-slate-500">{fightTimePrecise(e.fightTimeMs)}</td>
+            <td className="hidden py-1 pr-2 tabular-nums text-slate-600 sm:table-cell">{beforeDeath(e.beforeDeathMs)}</td>
+            <td colSpan={3} className="py-1 text-xs text-violet-300">
+              <span className="mr-1 text-violet-400/70">Debuff</span>
+              <Ability id={e.abilityId} name={abilities[e.abilityId]?.name} icon={abilities[e.abilityId]?.icon} />{" "}
+              {e.change === "applied" ? "applied" : e.change === "stacked" ? `→ ${e.stacks} stacks` : "fell off"}
+            </td>
+          </tr>
+        ) : (
         <tr key={i} className={e.kind === "damage" && e.big ? "bg-red-500/10" : ""}>
           <td className="py-1.5 pr-2 tabular-nums text-slate-400">{fightTimePrecise(e.fightTimeMs)}</td>
           <td className="hidden py-1.5 pr-2 tabular-nums text-slate-500 sm:table-cell">{beforeDeath(e.beforeDeathMs)}</td>
@@ -142,7 +153,8 @@ function EventRows({
             <HealthBar hp={e.hpAfter} />
           </td>
         </tr>
-      ))}
+        ),
+      )}
     </>
   );
 }
@@ -153,6 +165,7 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
   const top = burst.damage.slice(0, 4);
   const name = (id: number) => abilities[id]?.name ?? `Spell ${id}`;
   const lowHealing = burst.healing < burst.totalDamage * 0.25;
+  const debuffOf = (id: number) => story.debuffs?.find((d) => d.abilityId === id);
   return (
     <div className="rounded-lg border-l-4 border-red-400 bg-ink/60 p-4">
       <p className="text-lg font-semibold text-white">
@@ -170,6 +183,9 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
                 <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />{" "}
                 <span className="text-red-300">−{compact(a.total)}</span>
                 {a.hits > 1 && <span className="text-slate-500"> ({a.hits} hits)</span>}
+                {(debuffOf(a.abilityId)?.maxStacks ?? 0) > 1 && (
+                  <span className="text-violet-300"> · {debuffOf(a.abilityId)!.maxStacks} stacks</span>
+                )}
               </li>
             ))}
           </ul>
@@ -185,6 +201,28 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
         <p className="mt-2 text-sm text-slate-300">
           The killing blow, {name(killingBlow.abilityId)} ({compact(killingBlow.amount)}), was just the last hit. The damage above is
           what actually brought you down.
+        </p>
+      )}
+
+      {story.debuffs && story.debuffs.length > 0 && (
+        <p className="mt-2 text-sm text-slate-300">
+          Boss debuffs on you in the last {story.windowMs / 1000}s:{" "}
+          {story.debuffs.slice(0, 5).map((d, i) => (
+            <span key={d.abilityId}>
+              {i > 0 && " · "}
+              <Ability id={d.abilityId} name={abilities[d.abilityId]?.name} icon={abilities[d.abilityId]?.icon} />
+              {d.maxStacks > 1 && (
+                <span className="text-violet-300">
+                  {" "}
+                  {d.stacksAtDeath === d.maxStacks ? `${d.maxStacks} stacks` : `up to ${d.maxStacks} stacks`}
+                </span>
+              )}
+              {d.removedBeforeDeathMs != null && (
+                <span className="text-slate-500"> (fell off {(d.removedBeforeDeathMs / 1000).toFixed(1)}s before death)</span>
+              )}
+            </span>
+          ))}
+          {story.debuffs.length > 5 && <span className="text-slate-500"> +{story.debuffs.length - 5} more</span>}
         </p>
       )}
 

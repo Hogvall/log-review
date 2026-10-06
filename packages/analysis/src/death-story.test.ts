@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import pull56 from "../fixtures/pull56.json";
 import cily from "../fixtures/pull56-cilyxb-death.json";
-import { buildDeathStory } from "./index";
+import { buildDeathStory, replayDebuffs } from "./index";
 
 const id = (name: string) => pull56.abilities.find((a) => a.name === name)!.gameID;
 
@@ -76,6 +76,66 @@ describe("healer details", () => {
 
   it("burst healing matches the healers' burst totals", () => {
     expect(story.healers.reduce((sum, h) => sum + h.burstAmount, 0)).toBeCloseTo(story.burst.healing);
+  });
+});
+
+describe("debuff stacks", () => {
+  const story = buildDeathStory(cily.death, cily.damage, cily.heals, cily.fightStartTime, {}, cily.debuffs);
+  const debuff = (name: string) => story.debuffs?.find((d) => d.abilityId === id(name));
+
+  it("lists boss debuffs from the window, most stacks first", () => {
+    const stacks = story.debuffs!.map((d) => d.maxStacks);
+    expect(stacks).toEqual([...stacks].sort((a, b) => b - a));
+  });
+
+  it("keeps a debuff that fell off just before death, with its peak stacks", () => {
+    // Real data: Mark of Acid reached 12 stacks, then fell off 0.1s before Cilyxb died.
+    const acid = debuff("Mark of Acid")!;
+    expect(acid.maxStacks).toBe(12);
+    expect(acid.stacksAtDeath).toBe(0);
+    expect(acid.removedBeforeDeathMs).toBeLessThan(500);
+  });
+
+  it("adds timestamped debuff rows inside the window without changing the health story", () => {
+    const rows = story.entries.filter((e) => e.kind === "debuff");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(r.beforeDeathMs).toBeLessThanOrEqual(story.windowMs);
+    expect(story.burst.startHp).toBeCloseTo(0.81, 2);
+    for (let i = 1; i < story.entries.length; i++) {
+      expect(story.entries[i]!.fightTimeMs).toBeGreaterThanOrEqual(story.entries[i - 1]!.fightTimeMs);
+    }
+  });
+
+  it("is null when debuffs weren't fetched", () => {
+    expect(buildDeathStory(cily.death, cily.damage, cily.heals, cily.fightStartTime).debuffs).toBeNull();
+  });
+
+  it("replays applications, stacks and removals", () => {
+    const ev = [
+      { timestamp: 100, type: "applydebuff", abilityGameID: 1 },
+      { timestamp: 200, type: "applydebuffstack", abilityGameID: 1, stack: 2 },
+      { timestamp: 300, type: "applydebuffstack", abilityGameID: 1, stack: 3 },
+      { timestamp: 300, type: "applydebuff", abilityGameID: 2 },
+      { timestamp: 400, type: "removedebuff", abilityGameID: 2 },
+      { timestamp: 450, type: "removedebuffstack", abilityGameID: 1, stack: 2 },
+    ];
+    const { debuffs, changes } = replayDebuffs(ev, 500, 0, 1000);
+    expect(debuffs).toEqual([
+      { abilityId: 1, maxStacks: 3, stacksAtDeath: 2, removedBeforeDeathMs: null },
+      { abilityId: 2, maxStacks: 1, stacksAtDeath: 0, removedBeforeDeathMs: 100 },
+    ]);
+    expect(changes.map((c) => `${c.abilityId}:${c.change}:${c.stacks}`)).toEqual(["1:applied:1", "1:stacked:2", "1:stacked:3", "2:applied:1", "2:removed:0"]);
+  });
+
+  it("counts stacks built up before the window", () => {
+    const ev = [
+      { timestamp: 100, type: "applydebuff", abilityGameID: 1 },
+      { timestamp: 200, type: "applydebuffstack", abilityGameID: 1, stack: 5 },
+      { timestamp: 9_000, type: "applydebuffstack", abilityGameID: 1, stack: 6 },
+    ];
+    const { debuffs, changes } = replayDebuffs(ev, 10_000, 0, 2_000);
+    expect(debuffs[0]).toMatchObject({ maxStacks: 6, stacksAtDeath: 6 });
+    expect(changes).toHaveLength(1);
   });
 });
 

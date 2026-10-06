@@ -22,6 +22,7 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
      - **Killing blow:** if it was just the last small tick, the summary says so.
      - **Health graph** across the last 15 seconds.
      - **Event log:** timestamped, with your health after every hit and healing grouped between hits. Each healing row shows who healed and with which spells. The final drop is open; earlier events are collapsed.
+     - **Boss debuffs:** every boss debuff you had in the last 15 seconds, with its peak stack count, and whether it fell off before you died. Stack changes appear as timestamped rows in the event log.
      - **Who was healing you (for healers):** each healer's healing and shields during the final drop and over the last 15 seconds, their top spells, and any healing that heal-absorb effects ate.
    - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
 
@@ -42,7 +43,7 @@ Deaths are grouped so that blame isn't unfair. When at least 25% of the raid (an
 - Deaths during the wipe are "probably not your fault".
 - Deaths after the wipe are ignored.
 
-Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
+Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline, plus 1 for your boss debuffs over the pull. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
 
 ## Weekly benchmark snapshot
 

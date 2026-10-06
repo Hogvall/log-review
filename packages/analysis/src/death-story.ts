@@ -38,6 +38,27 @@ export interface HealerSummary {
   spells: HealSpell[];
 }
 
+/** A WCL debuff event on the player (Debuffs view), from an enemy. */
+export interface DebuffEvent {
+  timestamp: number;
+  type: string;
+  sourceID?: number;
+  abilityGameID?: number;
+  /** Stack count after the event, on stack changes. */
+  stack?: number;
+}
+
+/** A boss debuff you had at some point in the window before death. */
+export interface WindowDebuff {
+  abilityId: number;
+  /** Highest stack count during the window (1 for debuffs that don't stack). */
+  maxStacks: number;
+  /** Stacks at the moment of death; 0 if it had already fallen off. */
+  stacksAtDeath: number;
+  /** When it fell off, if it did before death. */
+  removedBeforeDeathMs: number | null;
+}
+
 export type StoryEntry =
   | {
       kind: "damage";
@@ -66,6 +87,17 @@ export type StoryEntry =
       sources: HealSource[];
       hpAfter: number | null;
       inBurst: boolean;
+    }
+  | {
+      kind: "debuff";
+      fightTimeMs: number;
+      beforeDeathMs: number;
+      abilityId: number;
+      change: "applied" | "stacked" | "removed";
+      /** Stacks after the change (0 when removed). */
+      stacks: number;
+      hpAfter: null;
+      inBurst: boolean;
     };
 
 export interface DeathStory {
@@ -90,6 +122,80 @@ export interface DeathStory {
   healers: HealerSummary[];
   /** Healing eaten by heal-absorb effects (e.g. debuffs that soak up heals). */
   healAbsorbed: { burst: number; window: number };
+  /** Boss debuffs you had during the window, most stacks first. Null when debuff data wasn't fetched. */
+  debuffs: WindowDebuff[] | null;
+}
+
+/**
+ * Replays debuff events to find every boss debuff you had during the window, and the changes inside it.
+ * Pass every debuff event from the start of the fight: stacks often build up long before the window.
+ */
+export function replayDebuffs(
+  events: DebuffEvent[],
+  deathTimestamp: number,
+  fightStartTime: number,
+  windowMs: number,
+): { debuffs: WindowDebuff[]; changes: Extract<StoryEntry, { kind: "debuff" }>[] } {
+  const windowStart = deathTimestamp - windowMs;
+  const stacks = new Map<number, number>();
+  const seen = new Map<number, WindowDebuff>();
+  const changes: Extract<StoryEntry, { kind: "debuff" }>[] = [];
+  const track = (id: number, n: number) => {
+    const d = seen.get(id) ?? { abilityId: id, maxStacks: 0, stacksAtDeath: 0, removedBeforeDeathMs: null };
+    d.maxStacks = Math.max(d.maxStacks, n);
+    d.stacksAtDeath = n;
+    d.removedBeforeDeathMs = null;
+    seen.set(id, d);
+  };
+
+  const sorted = events.filter((e) => e.abilityGameID && e.timestamp <= deathTimestamp).sort((a, b) => a.timestamp - b.timestamp);
+  let windowOpened = false;
+  for (const e of sorted) {
+    if (!windowOpened && e.timestamp >= windowStart) {
+      // Everything already on you when the window opens counts too.
+      for (const [id, n] of stacks) track(id, n);
+      windowOpened = true;
+    }
+    const id = e.abilityGameID!;
+    const before = stacks.get(id);
+    let change: "applied" | "stacked" | "removed" | null = null;
+    if (e.type === "applydebuff" || (e.type === "refreshdebuff" && before === undefined)) {
+      stacks.set(id, e.stack ?? 1);
+      if (e.type === "applydebuff") change = "applied";
+    } else if ((e.type === "applydebuffstack" || e.type === "removedebuffstack") && e.stack != null) {
+      // Only stack increases are worth a row; drops just update the state.
+      if (e.stack > (before ?? 0)) change = "stacked";
+      stacks.set(id, e.stack);
+    } else if (e.type === "removedebuff" && before !== undefined) {
+      stacks.delete(id);
+      change = "removed";
+    }
+    if (e.timestamp < windowStart) continue;
+    const now = stacks.get(id);
+    if (now !== undefined) track(id, now);
+    else if (seen.has(id)) {
+      seen.get(id)!.stacksAtDeath = 0;
+      seen.get(id)!.removedBeforeDeathMs = deathTimestamp - e.timestamp;
+    }
+    if (change) {
+      changes.push({
+        kind: "debuff",
+        fightTimeMs: e.timestamp - fightStartTime,
+        beforeDeathMs: deathTimestamp - e.timestamp,
+        abilityId: id,
+        change,
+        stacks: now ?? 0,
+        hpAfter: null,
+        inBurst: false,
+      });
+    }
+  }
+  if (!windowOpened) for (const [id, n] of stacks) track(id, n);
+
+  return {
+    debuffs: [...seen.values()].sort((a, b) => b.maxStacks - a.maxStacks || b.stacksAtDeath - a.stacksAtDeath),
+    changes,
+  };
 }
 
 export interface StoryOptions {
@@ -109,6 +215,8 @@ export function buildDeathStory(
   heals: HpEvent[],
   fightStartTime: number,
   { windowMs = 15_000, healthyHp = 0.75, bigHitShare = 0.2, repeatedHits = 4 }: StoryOptions = {},
+  /** Boss debuff events on the player since the pull started; omit if not fetched. */
+  debuffs?: DebuffEvent[],
 ): DeathStory {
   const inWindow = (e: HpEvent) => e.timestamp <= death.timestamp && e.timestamp >= death.timestamp - windowMs;
   // "heal" restores health; "absorbed" is a shield soaking damage (counted, since damage includes absorbed amounts).
@@ -158,6 +266,12 @@ export function buildDeathStory(
   for (let i = lastHealthy + 1; i < entries.length; i++) entries[i]!.inBurst = true;
 
   const healthyEntry = entries[lastHealthy];
+  const burstStartBeforeDeath = !healthyEntry
+    ? windowMs
+    : healthyEntry.kind === "healing"
+      ? healthyEntry.endBeforeDeathMs
+      : healthyEntry.beforeDeathMs;
+  const replay = debuffs ? replayDebuffs(debuffs, death.timestamp, fightStartTime, windowMs) : null;
   const burstEntries = entries.slice(lastHealthy + 1);
   const byAbility = new Map<number, AbilityDamage>();
   let healing = 0;
@@ -166,6 +280,7 @@ export function buildDeathStory(
       healing += e.amount;
       continue;
     }
+    if (e.kind !== "damage") continue;
     const a = byAbility.get(e.abilityId) ?? { abilityId: e.abilityId, total: 0, hits: 0 };
     a.total += e.amount;
     a.hits++;
@@ -177,7 +292,7 @@ export function buildDeathStory(
   const hits = new Map<number, number>();
   for (const e of entries) if (e.kind === "damage") hits.set(e.abilityId, (hits.get(e.abilityId) ?? 0) + 1);
 
-  const burstStartTs = death.timestamp - (healthyEntry ? (healthyEntry.kind === "healing" ? healthyEntry.endBeforeDeathMs : healthyEntry.beforeDeathMs) : windowMs);
+  const burstStartTs = death.timestamp - burstStartBeforeDeath;
   const healerMap = new Map<number, HealerSummary>();
   for (const e of events) {
     if (e.type === "damage" || e.sourceID === undefined) continue;
@@ -193,16 +308,20 @@ export function buildDeathStory(
   const sum = (list: HpEvent[]) => list.reduce((total, e) => total + (e.amount ?? 0), 0);
 
   const killing = entries.findLast((e) => e.kind === "damage" && e.killingBlow);
+  // Debuff rows go in time order alongside hits and heals, after the burst has been worked out from health.
+  const allEntries: StoryEntry[] = replay
+    ? [
+        ...entries,
+        ...replay.changes.map((c) => ({ ...c, inBurst: c.beforeDeathMs < burstStartBeforeDeath || (!healthyEntry && hasHp) })),
+      ].sort((a, b) => a.fightTimeMs - b.fightTimeMs)
+    : entries;
+
   return {
     windowMs,
     maxHp,
-    entries,
+    entries: allEntries,
     burst: {
-      beforeDeathMs: !healthyEntry
-        ? windowMs
-        : healthyEntry.kind === "healing"
-          ? healthyEntry.endBeforeDeathMs
-          : healthyEntry.beforeDeathMs,
+      beforeDeathMs: burstStartBeforeDeath,
       startHp: healthyEntry?.hpAfter ?? null,
       damage: burstDamage,
       totalDamage,
@@ -217,6 +336,7 @@ export function buildDeathStory(
       .filter(([, n]) => n >= repeatedHits)
       .map(([abilityId, n]) => ({ abilityId, hits: n }))
       .sort((a, b) => b.hits - a.hits),
+    debuffs: replay?.debuffs ?? null,
     healers,
     healAbsorbed: {
       burst: sum(healAbsorbEvents.filter((e) => e.timestamp > burstStartTs)),

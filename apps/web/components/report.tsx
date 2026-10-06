@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Avoidability, ClassifiedDeath, DeathStory, DefensiveReview, Finding, PlayerDeath, Severity, WipeEvent } from "@log-review/analysis";
 import type { AbilityTip } from "@log-review/encounters";
 import { Ability, type Tone, linkClass } from "./ui";
-import { compact, fightTime, ordinal, percent } from "@/lib/format";
+import { classColor, compact, fightTime, ordinal, percent } from "@/lib/format";
 
 export type AbilityInfo = Record<number, { name: string; icon: string }>;
 
@@ -105,13 +105,49 @@ export function FindingCard({
       const drop = story.lowWholeWindow
         ? "low health for 15s+"
         : `${story.burst.startHp != null ? percent(story.burst.startHp) : "healthy"} → 0 in ${(story.burst.beforeDeathMs / 1000).toFixed(1)}s`;
+      if (d.category === "wipe") {
+        return (
+          <IssueRow
+            index={index}
+            severity={finding.severity}
+            title={
+              <>
+                Died <span className="num">{fightTime(d.fightTimeMs)}</span> in the wipe{" "}
+                <span className="font-normal text-muted">
+                  ({wipe?.deaths ?? "many"} deaths in {wipe ? Math.max(1, Math.round((wipe.endMs - wipe.startMs) / 1000)) : "a few"}s)
+                </span>
+              </>
+            }
+          >
+            <p>
+              The raid was already going down, so this one is probably not on you. Mostly{" "}
+              {main.map((a, i) => (
+                <span key={a.abilityId}>
+                  {i > 0 && ", "}
+                  {ability(a.abilityId)}
+                </span>
+              ))}
+              .
+            </p>
+            <p className="flex gap-4 text-xs">
+              <a href="#raid-deaths" className={linkClass}>
+                Who died first
+              </a>
+              <a href={`#death-${d.order}`} className={linkClass}>
+                Your death timeline
+              </a>
+            </p>
+          </IssueRow>
+        );
+      }
       return (
         <IssueRow
           index={index}
           severity={finding.severity}
           title={
             <>
-              Died <span className="num">{fightTime(d.fightTimeMs)}</span> <span className="text-muted">·</span> {drop}
+              Died <span className="num">{fightTime(d.fightTimeMs)}</span>
+              {d.category === "wipe-start" && " at the start of the wipe"} <span className="text-muted">·</span> {drop}
             </>
           }
         >
@@ -124,11 +160,11 @@ export function FindingCard({
             ))}
             <span className="text-muted">. {deathContext(d, wipe)}</span>
           </p>
-          {d.category !== "wipe" && reviews[d.order] && <SurvivalLine review={reviews[d.order]!} />}
-          {d.category !== "wipe" && avoidable.length > 0 && (
+          {reviews[d.order] && <SurvivalLine review={reviews[d.order]!} />}
+          {avoidable.length > 0 && (
             <p>{listNames(avoidable.map((a) => nameOf(a.abilityId)))}: most top players take none.</p>
           )}
-          {d.category !== "wipe" && tipped && (
+          {tipped && (
             <p>
               <span className="text-fg/85">{nameOf(tipped.abilityId)}:</span> {tips[tipped.abilityId]!.tip}
             </p>
@@ -179,7 +215,7 @@ export function FindingCard({
   );
 }
 
-/** A strip across the pull showing every raid death, with this player's deaths marked. */
+/** A strip across the pull: minute marks, every raid death, the wipe, and your deaths labeled. */
 export function DeathTimeline({
   deaths,
   wipe,
@@ -194,46 +230,176 @@ export function DeathTimeline({
   names: Record<number, string>;
 }) {
   const at = (ms: number) => `${Math.min(100, Math.max(0, (ms / durationMs) * 100))}%`;
+  // Minute marks, skipping one that would crowd the end label.
+  const minutes = Array.from({ length: Math.floor(durationMs / 60_000) }, (_, i) => (i + 1) * 60_000).filter(
+    (m) => durationMs - m > durationMs * 0.06,
+  );
+  // Keep labels near the edges inside the strip.
+  const labelShift = (ms: number) => (ms / durationMs > 0.9 ? "-translate-x-full" : ms / durationMs < 0.1 ? "" : "-translate-x-1/2");
+  const mine = deaths.filter((d) => d.targetID === playerId);
   return (
     <div>
-      <div className="relative h-8 border border-line bg-raised" role="img" aria-label="Deaths during the pull">
+      {/* Labels for your deaths, above the strip */}
+      <div className="relative h-4 text-[11px] font-medium text-fg">
+        {mine.map((d) => (
+          <span key={d.order} className={`num absolute whitespace-nowrap ${labelShift(d.fightTimeMs)}`} style={{ left: at(d.fightTimeMs) }}>
+            you {fightTime(d.fightTimeMs)}
+          </span>
+        ))}
+      </div>
+      <div className="relative h-9 border border-line bg-raised" role="img" aria-label="Deaths during the pull">
+        {minutes.map((m) => (
+          <span key={m} className="absolute inset-y-0 w-px bg-line" style={{ left: at(m) }} />
+        ))}
         {wipe && (
           <div
-            className="absolute inset-y-0 bg-dmg/15"
+            className="absolute inset-y-0 bg-dmg/20"
             style={{ left: at(wipe.startMs), width: `max(4px, calc(${at(wipe.endMs)} - ${at(wipe.startMs)}))` }}
             title={`Wipe: ${wipe.deaths} deaths, ${fightTime(wipe.startMs)}–${fightTime(wipe.endMs)}`}
           />
         )}
         {deaths.map((d) => {
-          const mine = d.targetID === playerId;
+          const isMe = d.targetID === playerId;
           return (
             <span
               key={d.order}
               title={`${fightTime(d.fightTimeMs)} ${names[d.targetID!] ?? "Unknown"}`}
-              className={`absolute -translate-x-1/2 ${mine ? "inset-y-0 z-10 w-[3px] bg-fg" : "top-1/4 h-1/2 w-px bg-muted"}`}
+              className={`absolute -translate-x-1/2 ${isMe ? "inset-y-0 z-10 w-[3px] bg-fg" : "top-[30%] h-[40%] w-[2px] bg-muted"}`}
               style={{ left: at(d.fightTimeMs) }}
             />
           );
         })}
       </div>
-      <div className="num mt-1 flex justify-between text-[11px] text-faint">
-        <span>0:00</span>
-        <span className="flex gap-4 font-sans">
-          <span className="flex items-center gap-1.5">
-            <span className="h-3 w-[3px] bg-fg" /> you
+      <div className="num relative mt-1 h-4 text-[10px] text-faint">
+        <span className="absolute left-0">0:00</span>
+        {minutes.map((m) => (
+          <span key={m} className="absolute -translate-x-1/2" style={{ left: at(m) }}>
+            {fightTime(m)}
           </span>
-          <span className="flex items-center gap-1.5">
-            <span className="h-2 w-px bg-muted" /> others
-          </span>
-          {wipe && (
-            <span className="flex items-center gap-1.5">
-              <span className="h-2.5 w-3 bg-dmg/30" /> wipe
-            </span>
-          )}
+        ))}
+        <span className="absolute right-0 bg-ink pl-1">{fightTime(durationMs)}</span>
+      </div>
+      <div className="mt-1 flex flex-wrap gap-4 text-[11px] text-faint">
+        <span className="flex items-center gap-1.5">
+          <span className="h-3 w-[3px] bg-fg" /> you
         </span>
-        <span>{fightTime(durationMs)}</span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2 w-[2px] bg-muted" /> other deaths
+        </span>
+        {wipe && (
+          <span className="flex items-center gap-1.5">
+            <span className="h-2.5 w-3 bg-dmg/30" /> wipe
+          </span>
+        )}
       </div>
     </div>
+  );
+}
+
+const PHASE: Record<ClassifiedDeath["category"], { label: string; className: string }> = {
+  early: { label: "before wipe", className: "text-dmg" },
+  "wipe-start": { label: "wipe start", className: "text-warn" },
+  wipe: { label: "wipe", className: "text-faint" },
+  "after-wipe": { label: "after wipe", className: "text-faint" },
+};
+
+/** Every death in the pull in order, so it's clear who went first. The bulk of the wipe is folded away. */
+export function RaidDeathsTable({
+  deaths,
+  playerId,
+  names,
+  classes,
+  abilities,
+  kill,
+}: {
+  deaths: ClassifiedDeath[];
+  playerId: number;
+  names: Record<number, string>;
+  classes: Record<number, string>;
+  abilities: AbilityInfo;
+  kill: boolean;
+}) {
+  if (!deaths.length) return null;
+  // Show everything before the wipe, the start of the wipe, and your own deaths; fold the rest.
+  const shown = deaths.filter((d) => d.category === "early" || d.category === "wipe-start" || d.targetID === playerId);
+  const folded = deaths.filter((d) => !shown.includes(d));
+  const row = (d: ClassifiedDeath) => {
+    const isMe = d.targetID === playerId;
+    const id = d.killingAbilityGameID;
+    const phase = d.category === "early" && kill ? { label: "before kill", className: "text-dmg" } : PHASE[d.category];
+    return (
+      <tr key={d.order} className={`border-b border-line/40 ${isMe ? "bg-raised" : ""}`}>
+        <td className="num py-1 pr-3 text-faint">{d.order}</td>
+        <td className="num py-1 pr-3 text-muted">{fightTime(d.fightTimeMs)}</td>
+        <td className="py-1 pr-3">
+          <span className={isMe ? "font-semibold" : ""} style={{ color: classColor(classes[d.targetID!] ?? "") }}>
+            {names[d.targetID!] ?? "Unknown"}
+          </span>
+          {isMe && <span className="ml-1.5 text-xs text-fg">(you)</span>}
+        </td>
+        <td className="py-1 pr-3 text-fg/85">{id ? <Ability id={id} name={abilities[id]?.name} icon={abilities[id]?.icon} /> : "–"}</td>
+        <td className={`py-1 text-xs ${phase.className}`}>{phase.label}</td>
+      </tr>
+    );
+  };
+  const head = (
+    <thead className="text-left text-[11px] uppercase tracking-[0.07em] text-faint">
+      <tr className="border-b border-line">
+        <th className="pb-1 pr-3 font-medium">#</th>
+        <th className="pb-1 pr-3 font-medium">Time</th>
+        <th className="pb-1 pr-3 font-medium">Player</th>
+        <th className="pb-1 pr-3 font-medium">Killed by</th>
+        <th className="pb-1 font-medium">When</th>
+      </tr>
+    </thead>
+  );
+  return (
+    <div id="raid-deaths" className="scroll-mt-6">
+      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <table className="w-full min-w-[480px] text-sm">
+          {head}
+          <tbody>{shown.map(row)}</tbody>
+        </table>
+      </div>
+      {folded.length > 0 && (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer text-xs text-muted hover:text-fg">{folded.length} more deaths in and after the wipe</summary>
+          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[480px] text-sm">
+              {head}
+              <tbody>{folded.map(row)}</tbody>
+            </table>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+/** One line at the top: how many times you died this pull, and when. */
+export function DeathsSummary({ deaths, wipe, kill }: { deaths: PlayerDeath[]; wipe: WipeEvent | null; kill: boolean }) {
+  if (!deaths.length) return <p className="text-sm text-heal">No deaths this pull.</p>;
+  const phase = (d: PlayerDeath) => categoryLabel(d, wipe, kill);
+  return (
+    <p className="text-sm">
+      <span className={deaths.length > 1 ? "font-semibold text-dmg" : "font-medium text-fg"}>
+        Died {deaths.length === 1 ? "once" : `${deaths.length} times`}
+      </span>
+      <span className="text-muted">: </span>
+      {deaths.map((d, i) => {
+        const p = phase(d);
+        return (
+          <span key={d.order}>
+            {i > 0 && <span className="text-faint"> · </span>}
+            <a href={`#death-${d.order}`} className={linkClass}>
+              <span className="num">{fightTime(d.fightTimeMs)}</span>
+            </a>{" "}
+            <span className={toneText(p.tone)}>{p.label}</span>
+          </span>
+        );
+      })}
+      {deaths.length > 1 && <span className="text-muted"> (battle-ressed in between)</span>}
+    </p>
   );
 }
 

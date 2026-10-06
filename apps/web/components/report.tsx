@@ -1,4 +1,5 @@
-import type { Avoidability, ClassifiedDeath, DeathStory, Finding, PlayerDeath, WipeEvent } from "@log-review/analysis";
+import type { Avoidability, ClassifiedDeath, DeathStory, DefensiveReview, Finding, PlayerDeath, WipeEvent } from "@log-review/analysis";
+import type { AbilityTip } from "@log-review/encounters";
 import { Ability, Badge, type Tone } from "./ui";
 import { compact, fightTime, ordinal, percent } from "@/lib/format";
 
@@ -40,6 +41,21 @@ function deathAdvice(death: PlayerDeath, ability: string) {
   }
 }
 
+/** One line on defensives and healthstone for a death card. */
+function SurvivalLine({ review }: { review: DefensiveReview }) {
+  if (review.usedInWindow.length) return null;
+  const ready = review.notUsed.filter((d) => d.likelyReady && (d.confirmed || d.uses === 0)).map((d) => d.name);
+  const parts: string[] = [];
+  if (ready.length) parts.push(`${listNames(ready.slice(0, 2))} ${ready.length === 1 ? "was" : "were"} probably ready`);
+  if (!review.healthstone.usesMs.length) parts.push("you hadn't used a healthstone");
+  if (!parts.length) return <p className="mt-1 text-sm text-amber-300">No defensive pressed in the last 15 seconds.</p>;
+  return (
+    <p className="mt-1 text-sm text-amber-300">
+      No defensive pressed in the last 15 seconds, but {listNames(parts)}.
+    </p>
+  );
+}
+
 /** "A, B and C" */
 function listNames(names: string[]): string {
   return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
@@ -51,6 +67,8 @@ export function FindingCard({
   wipe,
   stories = {},
   avoidability = {},
+  reviews = {},
+  tips = {},
 }: {
   finding: Finding;
   abilities: AbilityInfo;
@@ -59,6 +77,10 @@ export function FindingCard({
   stories?: Record<number, DeathStory>;
   /** Avoidability of abilities you took damage from. */
   avoidability?: Record<number, Avoidability | null>;
+  /** Defensive and consumable reviews by death order. */
+  reviews?: Record<number, DefensiveReview>;
+  /** Boss tips by ability ID. */
+  tips?: Record<number, AbilityTip>;
 }) {
   const border = SEVERITY_STYLE[finding.severity];
   if (finding.kind === "death" && stories[finding.death.order]?.burst.damage.length) {
@@ -88,6 +110,16 @@ export function FindingCard({
           ))}
           . {context}
         </p>
+        {d.category !== "wipe" && reviews[d.order] && <SurvivalLine review={reviews[d.order]!} />}
+        {d.category !== "wipe" && main.some((a) => tips[a.abilityId]) && (
+          <p className="mt-1 text-sm text-slate-300">
+            Tip:{" "}
+            {main
+              .filter((a) => tips[a.abilityId])
+              .slice(0, 1)
+              .map((a) => `${nameOf(a.abilityId)}: ${tips[a.abilityId]!.tip}`)}
+          </p>
+        )}
         {d.category !== "wipe" && (
           <p className="mt-1 text-sm text-slate-400">
             {avoidable.length
@@ -142,7 +174,9 @@ export function FindingCard({
         {a.zeroShare != null && `${percent(a.zeroShare)} of top players take no damage from this. `}
         It was {percent(a.share)} of all the damage you took ({compact(a.total)}).
       </p>
-      <p className="mt-1 text-sm text-slate-400">Every hit you avoid is healing your healers can spend elsewhere.</p>
+      <p className="mt-1 text-sm text-slate-400">
+        {tips[a.abilityId] ? `Tip: ${tips[a.abilityId]!.tip}` : "Every hit you avoid is healing your healers can spend elsewhere."}
+      </p>
     </div>
   );
 }

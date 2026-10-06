@@ -1,4 +1,5 @@
-import type { DeathStory, HealSpell, PlayerDeath, StoryEntry, WipeEvent } from "@log-review/analysis";
+import type { DeathStory, DefensiveReview, HealSpell, PlayerDeath, StoryEntry, WipeEvent } from "@log-review/analysis";
+import type { AbilityTip } from "@log-review/encounters";
 import type { AbilityInfo } from "./report";
 import { Ability, Badge, type Tone } from "./ui";
 import { beforeDeath, classColor, compact, fightTime, fightTimePrecise, ordinal, percent } from "@/lib/format";
@@ -112,7 +113,7 @@ function EventRows({
             <td colSpan={3} className="py-1 text-xs text-violet-300">
               <span className="mr-1 text-violet-400/70">Debuff</span>
               <Ability id={e.abilityId} name={abilities[e.abilityId]?.name} icon={abilities[e.abilityId]?.icon} />{" "}
-              {e.change === "applied" ? "applied" : e.change === "stacked" ? `→ ${e.stacks} stacks` : "fell off"}
+              {e.change === "applied" ? "applied" : `→ ${e.stacks} stacks`}
             </td>
           </tr>
         ) : (
@@ -217,9 +218,6 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
                   {d.stacksAtDeath === d.maxStacks ? `${d.maxStacks} stacks` : `up to ${d.maxStacks} stacks`}
                 </span>
               )}
-              {d.removedBeforeDeathMs != null && (
-                <span className="text-slate-500"> (fell off {(d.removedBeforeDeathMs / 1000).toFixed(1)}s before death)</span>
-              )}
             </span>
           ))}
           {story.debuffs.length > 5 && <span className="text-slate-500"> +{story.debuffs.length - 5} more</span>}
@@ -244,6 +242,75 @@ function Summary({ story, abilities }: { story: DeathStory; abilities: AbilityIn
             ? "Very little healing landed during the drop. A personal defensive or healthstone right after the first big hit could have saved you."
             : "Healing was coming in but couldn't keep up. A defensive during the drop, or avoiding hits that are marked avoidable, would have bought time."}
       </p>
+    </div>
+  );
+}
+
+/** Boss-guide tips for the abilities that did the damage in the final drop. */
+function HowToHandle({ story, abilities, tips, guide }: { story: DeathStory; abilities: AbilityInfo; tips: Record<number, AbilityTip>; guide: { name: string; url: string } | null }) {
+  const withTips = story.burst.damage.filter((a) => tips[a.abilityId]).slice(0, 3);
+  if (!withTips.length) return null;
+  return (
+    <div className="rounded-lg border border-line p-3">
+      <h4 className="font-medium text-slate-200">How to handle it</h4>
+      <ul className="mt-1.5 space-y-1.5 text-sm text-slate-300">
+        {withTips.map((a) => (
+          <li key={a.abilityId}>
+            <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />: {tips[a.abilityId]!.tip}
+          </li>
+        ))}
+      </ul>
+      {guide && (
+        <a href={guide.url} target="_blank" rel="noreferrer" className="mt-2 inline-block text-xs text-accent hover:underline">
+          Full {guide.name} guide on Mythic Trap ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
+const ago = (ms: number) => `${(ms / 1000).toFixed(1)}s before death`;
+
+/** Defensives and consumables: what you pressed, and what you still had. */
+function Survival({ review, deathMs }: { review: DefensiveReview; deathMs: number }) {
+  const ready = review.notUsed.filter((d) => d.likelyReady);
+  const notReady = review.notUsed.filter((d) => !d.likelyReady);
+  const consumable = (label: string, c: DefensiveReview["healthstone"]) => {
+    const inWindow = c.usesMs.filter((t) => t >= deathMs - 15_000);
+    if (inWindow.length) return <span className="text-emerald-300">{label}: used {ago(deathMs - inWindow.at(-1)!)}</span>;
+    if (c.usesMs.length) return <span className="text-slate-300">{label}: used earlier at {fightTime(c.usesMs.at(-1)!)}</span>;
+    return <span className="text-amber-300">{label}: not used this pull</span>;
+  };
+  return (
+    <div className="rounded-lg border border-line p-3 text-sm">
+      <h4 className="font-medium text-slate-200">What you did to survive</h4>
+      <p className="mt-1.5">
+        {review.usedInWindow.length ? (
+          <span className="text-emerald-300">
+            Defensives in the last 15s: {review.usedInWindow.map((u) => `${u.name} (${ago(u.beforeDeathMs)})`).join(", ")}
+          </span>
+        ) : (
+          <span className="text-red-300">You used no personal defensive in the last 15 seconds.</span>
+        )}
+      </p>
+      {ready.length > 0 && (
+        <p className="mt-1 text-slate-300">
+          Probably ready but not pressed:{" "}
+          {ready
+            .map((d) => `${d.name}${d.uses === 0 ? " (never used this pull" + (d.confirmed ? ")" : ", if you have it)") : ` (last used ${fightTime(d.lastUsedMs!)}, ~${Math.round(d.cooldownSec / 60) || 1} min cooldown)`}`)
+            .join(" · ")}
+        </p>
+      )}
+      {notReady.length > 0 && (
+        <p className="mt-1 text-slate-500">
+          Likely still on cooldown: {notReady.map((d) => `${d.name} (used ${fightTime(d.lastUsedMs!)})`).join(" · ")}
+        </p>
+      )}
+      <p className="mt-1 flex flex-wrap gap-x-4">
+        {consumable("Healthstone", review.healthstone)}
+        {consumable("Health potion", review.healthPotion)}
+      </p>
+      <p className="mt-2 text-xs text-slate-500">Cooldowns are base values; talents can shorten them, so "ready" is an estimate.</p>
     </div>
   );
 }
@@ -307,6 +374,9 @@ export function DeathStoryView({
   wipe,
   kill,
   actors,
+  review,
+  tips = {},
+  guide = null,
 }: {
   death: PlayerDeath;
   story: DeathStory;
@@ -314,11 +384,16 @@ export function DeathStoryView({
   wipe: WipeEvent | null;
   kill: boolean;
   actors: Actors;
+  review?: DefensiveReview;
+  tips?: Record<number, AbilityTip>;
+  guide?: { name: string; url: string } | null;
 }) {
   const category =
     death.category === "early" && !wipe ? { label: kill ? "Before the kill" : "During the pull", tone: "red" as Tone } : CATEGORY[death.category];
-  const before = story.entries.filter((e) => !e.inBurst);
-  const during = story.entries.filter((e) => e.inBurst);
+  // Debuffs falling off aren't useful to read, so only applications and stack increases are shown.
+  const shown = story.entries.filter((e) => !(e.kind === "debuff" && e.change === "removed"));
+  const before = shown.filter((e) => !e.inBurst);
+  const during = shown.filter((e) => e.inBurst);
   const header = (
     <thead className="text-left text-xs uppercase tracking-wide text-slate-500">
       <tr>
@@ -340,6 +415,10 @@ export function DeathStoryView({
       </div>
 
       <Summary story={story} abilities={abilities} />
+      <div className="grid gap-3 lg:grid-cols-2">
+        {review && <Survival review={review} deathMs={death.fightTimeMs} />}
+        <HowToHandle story={story} abilities={abilities} tips={tips} guide={guide} />
+      </div>
       <HealthGraph story={story} />
 
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">

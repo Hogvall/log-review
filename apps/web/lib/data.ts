@@ -5,6 +5,8 @@ import {
   type DamageTakenEvent,
   type DeathStory,
   type DebuffEvent,
+  type ConsumableCounts,
+  type DefensiveReview,
   type HpEvent,
   type Fix,
   type PlayerReport,
@@ -16,8 +18,11 @@ import {
   buildPlayerReport,
   compareToBenchmark,
   rankFixes,
+  countConsumables,
+  reviewDefensives,
   roleOf,
 } from "@log-review/analysis";
+import { type AbilityTip, getAbilityTip, getBoss } from "@log-review/encounters";
 import {
   abilities as abilitiesTable,
   benchmarks,
@@ -119,7 +124,7 @@ async function getDeathStories(
   playerIds: Set<number>,
   data: CachedPlayerData,
   deaths: { order: number; timestamp: number; killingAbilityGameID?: number }[],
-): Promise<Record<number, DeathStory>> {
+): Promise<{ stories: Record<number, DeathStory>; windows: NonNullable<CachedPlayerData["deathWindows"]> }> {
   const windows = { ...data.deathWindows };
   const missing = deaths.filter((d) => !windows[d.timestamp]);
   let bossDebuffs = data.bossDebuffs;
@@ -164,7 +169,7 @@ async function getDeathStories(
     const w = windows[d.timestamp];
     if (w) stories[d.order] = buildDeathStory(d, w.damage, w.heals, fight.startTime, { windowMs: DEATH_WINDOW_MS }, bossDebuffs);
   }
-  return stories;
+  return { stories, windows };
 }
 
 interface DamageDoneAbility {
@@ -330,6 +335,13 @@ export interface PlayerAnalysis {
   analysis: PlayerReport;
   /** Timestamped story of each death that mattered, by death order. */
   deathStories: Record<number, DeathStory>;
+  /** Defensives and consumables around each death, by death order. */
+  defensiveReviews: Record<number, DefensiveReview>;
+  /** Potions and healthstones over the whole pull, counted from casts. */
+  consumables: ConsumableCounts;
+  /** Boss strategy tips by ability ID, where we have one. */
+  tips: Record<number, AbilityTip>;
+  bossGuide: { name: string; url: string } | null;
   comparison: Comparison | null;
   /** Survival and DPS findings in one ranked list. */
   fixes: Fix[];
@@ -368,7 +380,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     avoidability: avoidability.map,
   });
 
-  const deathStories = await getDeathStories(
+  const { stories: deathStories, windows: deathWindows } = await getDeathStories(
     code,
     fight,
     actorId,
@@ -410,6 +422,39 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     const rows = await getDb().select().from(abilitiesTable).where(inArray(abilitiesTable.id, missing));
     for (const r of rows) abilities[r.id] = { name: r.name, icon: r.icon ?? "" };
   }
+  // Defensives and consumables around each death. Names come from the report plus any benchmark lookups above.
+  const abilityNames: Record<number, string> = {};
+  for (const [id, a] of Object.entries(abilities)) abilityNames[Number(id)] = a.name;
+  const commonForSpec = new Set(
+    (comparison?.abilities ?? [])
+      .filter((a) => a.benchmark.usedBy >= 0.5)
+      .flatMap((a) => (abilityNames[a.abilityId] ? [abilityNames[a.abilityId]!] : [])),
+  );
+  const defensiveReviews: Record<number, DefensiveReview> = {};
+  for (const d of analysis.deaths) {
+    if (!deathStories[d.order]) continue;
+    const selfHeals = (deathWindows[d.timestamp]?.heals ?? [])
+      .filter((h) => h.sourceID === actorId && h.abilityGameID)
+      .map((h) => ({ fightTimeMs: h.timestamp - fight.startTime, abilityId: h.abilityGameID! }));
+    defensiveReviews[d.order] = reviewDefensives({
+      classSlug: actor.subType,
+      casts: perf.casts,
+      windowHeals: selfHeals,
+      names: abilityNames,
+      deathFightTimeMs: d.fightTimeMs,
+      windowMs: DEATH_WINDOW_MS,
+      commonForSpec,
+    });
+  }
+
+  // Boss tips for every ability that hit this player.
+  const boss = getBoss(fight.encounterID);
+  const tips: Record<number, AbilityTip> = {};
+  for (const a of analysis.damageTaken) {
+    const tip = getAbilityTip(fight.encounterID, abilities[a.abilityId]?.name);
+    if (tip) tips[a.abilityId] = tip;
+  }
+
   const names: Record<number, string> = {};
   const classes: Record<number, string> = {};
   for (const p of report.players) {
@@ -423,6 +468,10 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     player: { id: actorId, name: actor.name, classSlug: actor.subType, specKey },
     analysis,
     deathStories,
+    defensiveReviews,
+    consumables: countConsumables(perf.casts, abilityNames),
+    tips,
+    bossGuide: boss?.guideUrl ? { name: boss.name, url: boss.guideUrl } : null,
     comparison,
     fixes: rankFixes(analysis, comparison),
     benchmarkWeek: bench?.week ?? null,

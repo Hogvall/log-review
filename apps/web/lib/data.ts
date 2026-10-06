@@ -469,7 +469,11 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     analysis,
     deathStories,
     defensiveReviews,
-    consumables: countConsumables(perf.casts, abilityNames),
+    consumables: countConsumables(
+      perf.casts,
+      abilityNames,
+      Object.fromEntries(Object.entries(abilities).map(([id, a]) => [id, a.icon])),
+    ),
     tips,
     bossGuide: boss?.guideUrl ? { name: boss.name, url: boss.guideUrl } : null,
     comparison,

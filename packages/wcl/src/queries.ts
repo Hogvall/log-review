@@ -96,10 +96,10 @@ export interface WclEvent {
 export type EventDataType = "Deaths" | "DamageTaken" | "Casts" | "Buffs" | "Debuffs" | "Healing" | "DamageDone";
 
 const EVENTS = /* GraphQL */ `
-  query Events($code: String!, $fightIDs: [Int]!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $sourceID: Int, $filter: String) {
+  query Events($code: String!, $fightIDs: [Int]!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $sourceID: Int, $targetID: Int, $filter: String) {
     reportData {
       report(code: $code) {
-        events(fightIDs: $fightIDs, dataType: $dataType, startTime: $startTime, endTime: $endTime, sourceID: $sourceID, filterExpression: $filter, limit: 10000) {
+        events(fightIDs: $fightIDs, dataType: $dataType, startTime: $startTime, endTime: $endTime, sourceID: $sourceID, targetID: $targetID, filterExpression: $filter, limit: 10000) {
           data
           nextPageTimestamp
         }
@@ -114,7 +114,7 @@ export async function getFightEvents(
   code: string,
   fight: Pick<Fight, "id" | "startTime" | "endTime">,
   dataType: EventDataType,
-  opts: { sourceID?: number; filterExpression?: string } = {},
+  opts: { sourceID?: number; targetID?: number; filterExpression?: string } = {},
 ): Promise<WclEvent[]> {
   const events: WclEvent[] = [];
   let startTime: number | null = fight.startTime;
@@ -128,6 +128,7 @@ export async function getFightEvents(
       startTime,
       endTime: fight.endTime,
       sourceID: opts.sourceID,
+      targetID: opts.targetID,
       filter: opts.filterExpression,
     });
     const page = data.reportData.report.events;
@@ -160,4 +161,33 @@ export interface RateLimit {
 export async function getRateLimit(client: WclQuerier): Promise<RateLimit> {
   const data = await client.query<{ rateLimitData: RateLimit }>(RATE_LIMIT);
   return data.rateLimitData;
+}
+
+export interface PlayerDetail {
+  id: number;
+  name: string;
+  /** Class slug, e.g. "DeathKnight". */
+  type: string;
+  /** "<Class>-<Spec>", e.g. "DeathKnight-Blood". */
+  icon: string;
+  minItemLevel?: number;
+  maxItemLevel?: number;
+}
+
+export interface PlayerDetails {
+  tanks: PlayerDetail[];
+  healers: PlayerDetail[];
+  dps: PlayerDetail[];
+}
+
+/** Players in a fight grouped by role, with their spec. */
+export async function getPlayerDetails(client: WclQuerier, code: string, fightId: number): Promise<PlayerDetails> {
+  const data = await client.query<{
+    reportData: { report: { playerDetails: { data: { playerDetails: Partial<PlayerDetails> } } } };
+  }>(`query($code: String!, $fightIDs: [Int]!) { reportData { report(code: $code) { playerDetails(fightIDs: $fightIDs) } } }`, {
+    code,
+    fightIDs: [fightId],
+  });
+  const details = data.reportData.report.playerDetails.data.playerDetails;
+  return { tanks: details.tanks ?? [], healers: details.healers ?? [], dps: details.dps ?? [] };
 }

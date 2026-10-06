@@ -8,13 +8,17 @@
     "start": "next start"
   },
   "dependencies": {
+    "@log-review/analysis": "*",
+    "@log-review/db": "*",
     "@log-review/wcl": "*",
     "next": "^16.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0"
+    "@types/react-dom": "^19.3.0",
+    "tailwindcss": "^4.3.3"
   }
 }

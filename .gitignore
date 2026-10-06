@@ -5,3 +5,4 @@ dist/
 specific.local
 *.tsbuildinfo
 .env*
+next-env.d.ts

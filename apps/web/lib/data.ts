@@ -318,6 +318,8 @@ export interface PlayerAnalysis {
   snapshotWeek: string | null;
   abilities: Record<number, { name: string; icon: string }>;
   names: Record<number, string>;
+  /** Class slug per player ID, for coloring names. */
+  classes: Record<number, string>;
 }
 
 export async function getPlayerAnalysis(code: string, fightId: number, actorId: number): Promise<PlayerAnalysis | null> {
@@ -387,7 +389,11 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     for (const r of rows) abilities[r.id] = { name: r.name, icon: r.icon ?? "" };
   }
   const names: Record<number, string> = {};
-  for (const p of report.players) names[p.id] = p.name;
+  const classes: Record<number, string> = {};
+  for (const p of report.players) {
+    names[p.id] = p.name;
+    classes[p.id] = p.subType;
+  }
 
   return {
     report,
@@ -403,6 +409,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     snapshotWeek: avoidability.week,
     abilities,
     names,
+    classes,
   };
 }
 

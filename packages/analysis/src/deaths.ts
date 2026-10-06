@@ -111,7 +111,8 @@ export function damageByAbility(events: DamageTakenEvent[]): AbilityDamage[] {
     entry.hits++;
     byAbility.set(e.abilityGameID, entry);
   }
-  return [...byAbility.values()].sort((a, b) => b.total - a.total);
+  // Hits that did nothing (immunities, misses) are noise in a damage breakdown.
+  return [...byAbility.values()].filter((a) => a.total > 0).sort((a, b) => b.total - a.total);
 }
 
 export interface DeathRecap {

@@ -43,7 +43,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   }
   if (!result) return <NotFoundPanel what="Player or pull" />;
 
-  const { report, fight, player, analysis, deathStories, comparison, fixes, abilities, names, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
+  const { report, fight, player, analysis, deathStories, comparison, fixes, abilities, names, classes, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
   const durationMs = fight.endTime - fight.startTime;
   const pull = report.fights.filter((f) => f.encounterID === fight.encounterID && f.difficulty === fight.difficulty && f.id <= fight.id).length;
   const spec = specLabel(player.specKey, player.classSlug);
@@ -73,7 +73,15 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
             ) : (
               relevantDeaths.map((d) =>
                 deathStories[d.order] ? (
-                  <DeathStoryView key={d.order} death={d} story={deathStories[d.order]!} abilities={abilities} wipe={analysis.wipe} kill={!!fight.kill} />
+                  <DeathStoryView
+                    key={d.order}
+                    death={d}
+                    story={deathStories[d.order]!}
+                    abilities={abilities}
+                    wipe={analysis.wipe}
+                    kill={!!fight.kill}
+                    actors={{ names, classes, selfId: player.id }}
+                  />
                 ) : (
                   <DeathDetails key={d.order} death={d} abilities={abilities} wipe={analysis.wipe} kill={!!fight.kill} />
                 ),

@@ -3,7 +3,7 @@ import { DeathStoryView } from "@/components/death-story";
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { BuffTable, CooldownTimeline, PerfFindingCard, RotationTable, TargetTable } from "@/components/performance";
 import { RememberCharacter } from "@/components/player-picker";
-import { AvoidabilityBadge, DeathDetails, DeathTimeline, FindingCard } from "@/components/report";
+import { AvoidabilityBadge, DeathDetails, DeathTimeline, DeathsSummary, FindingCard, RaidDeathsTable } from "@/components/report";
 import { type Tab, Tabs } from "@/components/tabs";
 import { Ability, Breadcrumbs, Section, linkClass } from "@/components/ui";
 import { type PlayerAnalysis, getPlayerAnalysis } from "@/lib/data";
@@ -77,11 +77,22 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       content: (
         <>
           <p className="mb-2 text-sm text-muted">
+            {plural(analysis.raidDeaths.length, "raid death")} this pull
             {analysis.wipe
-              ? `Wipe: ${analysis.wipe.deaths} deaths between ${fightTime(analysis.wipe.startMs)} and ${fightTime(analysis.wipe.endMs)}.`
-              : plural(analysis.raidDeaths.length, "death") + " in this pull."}
+              ? `; the wipe was ${analysis.wipe.deaths} deaths between ${fightTime(analysis.wipe.startMs)} and ${fightTime(analysis.wipe.endMs)}.`
+              : "."}
           </p>
           <DeathTimeline deaths={analysis.raidDeaths} wipe={analysis.wipe} durationMs={durationMs} playerId={player.id} names={names} />
+          <div className="mt-4">
+            <RaidDeathsTable
+              deaths={analysis.raidDeaths}
+              playerId={player.id}
+              names={names}
+              classes={classes}
+              abilities={abilities}
+              kill={!!fight.kill}
+            />
+          </div>
           <div className="mt-4">
             {relevantDeaths.length === 0 ? (
               <p className="border-t border-line py-3 text-sm text-heal">You didn't die.</p>
@@ -255,6 +266,9 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       )}
 
       <Section title="Top issues" meta={fixes.length > 3 ? `${fixes.length - 3} more in the tabs` : undefined}>
+        <div className="pb-2">
+          <DeathsSummary deaths={relevantDeaths} wipe={analysis.wipe} kill={!!fight.kill} />
+        </div>
         {fixes.length === 0 ? (
           <p className="pb-3 text-sm text-heal">
             Nothing to flag: no deaths{analysis.hasAvoidabilityData ? ", no avoidable damage" : ""}

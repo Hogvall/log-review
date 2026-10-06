@@ -43,7 +43,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   }
   if (!result) return <NotFoundPanel what="Player or pull" />;
 
-  const { report, fight, player, analysis, deathStories, comparison, fixes, abilities, names, classes, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
+  const { report, fight, player, analysis, deathStories, defensiveReviews, consumables, tips, bossGuide, comparison, fixes, abilities, names, classes, snapshotWeek, benchmarkWeek, topPlayer, playerCasts } = result;
   const durationMs = fight.endTime - fight.startTime;
   const pull = report.fights.filter((f) => f.encounterID === fight.encounterID && f.difficulty === fight.difficulty && f.id <= fight.id).length;
   const spec = specLabel(player.specKey, player.classSlug);
@@ -81,6 +81,9 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                     wipe={analysis.wipe}
                     kill={!!fight.kill}
                     actors={{ names, classes, selfId: player.id }}
+                    review={defensiveReviews[d.order]}
+                    tips={tips}
+                    guide={bossGuide}
                   />
                 ) : (
                   <DeathDetails key={d.order} death={d} abilities={abilities} wipe={analysis.wipe} kill={!!fight.kill} />
@@ -103,6 +106,16 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
             <p className="mb-3 text-sm text-slate-400">
               Boss damage you took, compared with what top players take
               {snapshotWeek ? ` (data from ${weekLabel(snapshotWeek)})` : ""}. Hover a label for details.
+              {bossGuide && (
+                <>
+                  {" "}
+                  Tips summarized from{" "}
+                  <a href={bossGuide.url} target="_blank" rel="noreferrer" className="text-accent hover:underline">
+                    Mythic Trap's {bossGuide.name} guide ↗
+                  </a>
+                  .
+                </>
+              )}
             </p>
             <div className="-mx-4 overflow-x-auto sm:mx-0">
               <table className="w-full min-w-[480px] text-sm">
@@ -120,6 +133,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                     <tr key={a.abilityId} className={a.classification === "avoidable" ? "bg-red-500/5" : ""}>
                       <td className="px-4 py-2 sm:pl-0">
                         <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />
+                        {tips[a.abilityId] && <span className="mt-0.5 block max-w-md text-xs text-slate-400">{tips[a.abilityId]!.tip}</span>}
                       </td>
                       <td className="px-2 py-2">
                         <AvoidabilityBadge value={a.classification} zeroShare={a.zeroShare} />
@@ -190,6 +204,18 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
             Pull {pull} · {fightTime(durationMs)}
           </span>
         </div>
+        <p className="mt-1 text-sm text-slate-400">
+          Consumables this pull:{" "}
+          <span className={consumables.combatPotions ? "text-slate-200" : "text-amber-300"}>
+            {consumables.combatPotions} combat {consumables.combatPotions === 1 ? "potion" : "potions"}
+          </span>
+          {" · "}
+          {consumables.healthstones} {consumables.healthstones === 1 ? "healthstone" : "healthstones"}
+          {" · "}
+          {consumables.healthPotions} health {consumables.healthPotions === 1 ? "potion" : "potions"}
+          {consumables.manaPotions > 0 && ` · ${consumables.manaPotions} mana ${consumables.manaPotions === 1 ? "potion" : "potions"}`}
+          {consumables.combatPotions === 0 && <span className="text-amber-300"> · Most raiders use a combat potion before the pull and another with Bloodlust.</span>}
+        </p>
       </header>
 
       {comparison && (
@@ -248,6 +274,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                   wipe={analysis.wipe}
                   stories={deathStories}
                   avoidability={avoidabilityById}
+                  reviews={defensiveReviews}
+                  tips={tips}
                 />
               ) : (
                 <PerfFindingCard key={i} finding={fix.finding} abilities={abilities} amount={amount} />

@@ -10,6 +10,7 @@
   "dependencies": {
     "@log-review/analysis": "*",
     "@log-review/db": "*",
+    "@log-review/encounters": "*",
     "@log-review/wcl": "*",
     "next": "^16.4.0",
     "react": "^19.3.0",

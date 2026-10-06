@@ -22,9 +22,20 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
      - **Killing blow:** if it was just the last small tick, the summary says so.
      - **Health graph** across the last 15 seconds.
      - **Event log:** timestamped, with your health after every hit and healing grouped between hits. Each healing row shows who healed and with which spells. The final drop is open; earlier events are collapsed.
-     - **Boss debuffs:** every boss debuff you had in the last 15 seconds, with its peak stack count, and whether it fell off before you died. Stack changes appear as timestamped rows in the event log.
+     - **Boss debuffs:** every boss debuff you had in the last 15 seconds, with its peak stack count. Applications and stack increases appear as timestamped rows in the event log.
+     - **What you did to survive:**
+       - Personal defensives used in the last 15 seconds.
+       - Defensives you probably had ready but didn't press: never used this pull, or past their base cooldown.
+       - Healthstone and health-potion use.
+
+       Defensives come from a per-class list matched by spell name (`packages/analysis/src/defensives.ts`). One you never pressed is only mentioned if it's core to the class, or most top players of your spec use it.
+     - **How to handle it:** boss tips for the abilities in the final drop.
      - **Who was healing you (for healers):** each healer's healing and shields during the final drop and over the last 15 seconds, their top spells, and any healing that heal-absorb effects ate.
    - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
+
+The header shows **consumables for the pull**: combat potions, healthstones, and health and mana potions. They're counted from casts by name, because WCL's playerDetails potion and healthstone counts read 0 in current logs.
+
+**Boss tips** live in `packages/encounters`. Each one is a short summary, written for this app, of the [Mythic Trap](https://www.mythictrap.com) guide linked for that boss, matched to log abilities by name. They show under abilities in the damage table, in death stories, and on fix cards. Abilities without a tip keep the data-based hint (e.g. "95% of top players take none").
 
 When the weekly snapshot has data for your spec on that boss, the report also compares you with the **top 15** (medians, with the middle half shown as a range):
 - **Header:** DPS vs the median, time spent casting, item level and fight length (top players usually have better gear and shorter kills).
@@ -78,7 +89,8 @@ Useful commands:
 apps/web            Next.js site (UI + API routes)
 apps/worker         Benchmark crawler: job queue, API budget, rankings/fight jobs, aggregation
 packages/wcl        Warcraft Logs v2 GraphQL client and queries
-packages/analysis   Pure functions: fight metrics, medians, benchmarks, avoidability
+packages/analysis   Pure functions: fight metrics, medians, benchmarks, avoidability, deaths, defensives
+packages/encounters Per-boss tips and guide links for the current tier
 packages/db         Drizzle schema, client and migrations
 specific.hcl        Infrastructure (specific.dev)
 ```

@@ -46,3 +46,12 @@ export function specLabel(specKey: string | null, classSlug: string): string {
 
 export const abilityIconUrl = (icon: string) => `https://assets.rpglogs.com/img/warcraft/abilities/${icon}`;
 export const wowheadSpellUrl = (id: number) => `https://www.wowhead.com/spell=${id}`;
+
+/** Fight time with tenths, e.g. "4:13.7". */
+export function fightTimePrecise(ms: number): string {
+  const s = Math.max(0, ms) / 1000;
+  return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, "0")}`;
+}
+
+/** Time before death, e.g. "−2.2s". */
+export const beforeDeath = (ms: number) => `−${(ms / 1000).toFixed(1)}s`;

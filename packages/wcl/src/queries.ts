@@ -82,7 +82,10 @@ export async function getReportOverview(client: WclQuerier, code: string): Promi
   };
 }
 
-/** A raw WCL event. Fields vary by event type, so only the common ones are typed. */
+/**
+ * A raw WCL event. Fields vary by event type, so only the common ones are typed.
+ * With includeResources, damage and heal events also carry the target's hitPoints/maxHitPoints after the event.
+ */
 export interface WclEvent {
   timestamp: number;
   type: string;
@@ -96,10 +99,10 @@ export interface WclEvent {
 export type EventDataType = "Deaths" | "DamageTaken" | "Casts" | "Buffs" | "Debuffs" | "Healing" | "DamageDone";
 
 const EVENTS = /* GraphQL */ `
-  query Events($code: String!, $fightIDs: [Int]!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $sourceID: Int, $targetID: Int, $filter: String) {
+  query Events($code: String!, $fightIDs: [Int]!, $dataType: EventDataType!, $startTime: Float!, $endTime: Float!, $sourceID: Int, $targetID: Int, $filter: String, $resources: Boolean) {
     reportData {
       report(code: $code) {
-        events(fightIDs: $fightIDs, dataType: $dataType, startTime: $startTime, endTime: $endTime, sourceID: $sourceID, targetID: $targetID, filterExpression: $filter, limit: 10000) {
+        events(fightIDs: $fightIDs, dataType: $dataType, startTime: $startTime, endTime: $endTime, sourceID: $sourceID, targetID: $targetID, filterExpression: $filter, includeResources: $resources, limit: 10000) {
           data
           nextPageTimestamp
         }
@@ -114,7 +117,7 @@ export async function getFightEvents(
   code: string,
   fight: Pick<Fight, "id" | "startTime" | "endTime">,
   dataType: EventDataType,
-  opts: { sourceID?: number; targetID?: number; filterExpression?: string } = {},
+  opts: { sourceID?: number; targetID?: number; filterExpression?: string; includeResources?: boolean } = {},
 ): Promise<WclEvent[]> {
   const events: WclEvent[] = [];
   let startTime: number | null = fight.startTime;
@@ -130,6 +133,7 @@ export async function getFightEvents(
       sourceID: opts.sourceID,
       targetID: opts.targetID,
       filter: opts.filterExpression,
+      resources: opts.includeResources,
     });
     const page = data.reportData.report.events;
     events.push(...page.data);

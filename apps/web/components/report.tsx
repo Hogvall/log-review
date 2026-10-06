@@ -1,4 +1,4 @@
-import type { Avoidability, ClassifiedDeath, Finding, PlayerDeath, WipeEvent } from "@log-review/analysis";
+import type { Avoidability, ClassifiedDeath, DeathStory, Finding, PlayerDeath, WipeEvent } from "@log-review/analysis";
 import { Ability, Badge, type Tone } from "./ui";
 import { compact, fightTime, ordinal, percent } from "@/lib/format";
 
@@ -40,8 +40,69 @@ function deathAdvice(death: PlayerDeath, ability: string) {
   }
 }
 
-export function FindingCard({ finding, abilities, wipe }: { finding: Finding; abilities: AbilityInfo; wipe: WipeEvent | null }) {
+/** "A, B and C" */
+function listNames(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+export function FindingCard({
+  finding,
+  abilities,
+  wipe,
+  stories = {},
+  avoidability = {},
+}: {
+  finding: Finding;
+  abilities: AbilityInfo;
+  wipe: WipeEvent | null;
+  /** Death stories by death order, to explain what actually did the damage. */
+  stories?: Record<number, DeathStory>;
+  /** Avoidability of abilities you took damage from. */
+  avoidability?: Record<number, Avoidability | null>;
+}) {
   const border = SEVERITY_STYLE[finding.severity];
+  if (finding.kind === "death" && stories[finding.death.order]?.burst.damage.length) {
+    const d = finding.death;
+    const story = stories[d.order]!;
+    const main = story.burst.damage.slice(0, 3);
+    const nameOf = (id: number) => abilities[id]?.name ?? `Spell ${id}`;
+    const avoidable = main.filter((a) => avoidability[a.abilityId] === "avoidable");
+    const seconds = (story.burst.beforeDeathMs / 1000).toFixed(1);
+    let context = "";
+    if (d.category === "early") context = `You were the ${ordinal(d.order)} player to die${wipe ? ", before the raid wiped" : ""}. `;
+    else if (d.category === "wipe-start") context = `You were one of the first to die when the raid wiped. `;
+    else context = `${wipe?.deaths ?? "Many"} players died within a few seconds, so this probably wasn't your fault. `;
+    return (
+      <div className={`rounded-xl border bg-panel p-4 ${border}`}>
+        <div className="text-white">
+          Died at {fightTime(d.fightTimeMs)}:{" "}
+          {story.lowWholeWindow ? "low on health for 15+ seconds" : `${story.burst.startHp != null ? percent(story.burst.startHp) : "healthy"} → dead in ${seconds}s`}
+        </div>
+        <p className="mt-2 text-sm text-slate-300">
+          Mostly from{" "}
+          {main.map((a, i) => (
+            <span key={a.abilityId}>
+              {i > 0 && (i === main.length - 1 ? " and " : ", ")}
+              <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />
+            </span>
+          ))}
+          . {context}
+        </p>
+        {d.category !== "wipe" && (
+          <p className="mt-1 text-sm text-slate-400">
+            {avoidable.length
+              ? `${listNames(avoidable.map((a) => nameOf(a.abilityId)))} ${avoidable.length === 1 ? "is" : "are"} avoidable: most top players never get hit. Learn where to stand for ${avoidable.length === 1 ? "it" : "them"}.`
+              : story.burst.healing < story.burst.totalDamage * 0.25
+                ? "Very little healing landed in those seconds. Use a personal defensive or healthstone as soon as the first big hit lands."
+                : "Healing couldn't keep up. A defensive during the drop would have bought time."}
+          </p>
+        )}
+        <a href={`#death-${d.order}`} className="mt-2 inline-block text-sm text-accent hover:underline">
+          See the full timeline →
+        </a>
+      </div>
+    );
+  }
   if (finding.kind === "death") {
     const d = finding.death;
     const id = d.killingAbilityGameID;

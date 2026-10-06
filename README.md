@@ -16,7 +16,12 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
 3. **Pick yourself** (`/r/<code>/<fight>`). Players are grouped by role. The site remembers your character and offers "Continue as …".
 4. **Player report** (`/r/<code>/<fight>/<actor>`, shareable). It shows:
    - **Fix these first:** the top 3 findings.
-   - **Deaths:** a timeline with the raid wipe highlighted, plus what hit you in the last 10 seconds.
+   - **Deaths:** a raid timeline with the wipe highlighted, plus a **death story** for each death:
+     - **Summary:** finds the moment it went wrong (the last time you were at ≥75% health) and says what hit you from then on. For example, "81% → dead in 2.2s, mostly from Living Venom and Protovenom Eruption".
+     - **Big hits:** hits worth 20%+ of your health are flagged.
+     - **Killing blow:** if it was just the last small tick, the summary says so.
+     - **Health graph** across the last 15 seconds.
+     - **Event log:** timestamped, with your health after every hit and healing grouped between hits. The final drop is open; earlier events are collapsed.
    - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
 
 When the weekly snapshot has data for your spec on that boss, the report also compares you with the **top 15** (medians, with the middle half shown as a range):
@@ -36,7 +41,7 @@ Deaths are grouped so that blame isn't unfair. When at least 25% of the raid (an
 - Deaths during the wipe are "probably not your fault".
 - Deaths after the wipe are ignored.
 
-Each analysis costs about 7 WCL queries the first time: deaths, damage taken, players, casts, buffs, damage done and active time. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
+Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
 
 ## Weekly benchmark snapshot
 

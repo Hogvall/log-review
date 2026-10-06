@@ -66,3 +66,25 @@ describe("countConsumables", () => {
     expect(countConsumables(casts, names)).toEqual({ combatPotions: 2, healthPotions: 2, manaPotions: 1, healthstones: 2 });
   });
 });
+
+describe("combat potion detection by icon", () => {
+  it("counts Light's Potential (no 'potion' in its name) from its icon, but not flasks with potion icons", () => {
+    const names: Record<number, string> = {
+      1: "Light's Potential",
+      2: "Flask of the Blood Knights",
+      3: "Flask of Tempered Aggression",
+      4: "Freightrunner's Flask",
+      5: "Explosive Potential",
+    };
+    const icons: Record<number, string> = {
+      1: "inv_12_profession_alchemy_lightpotion_yellow.jpg",
+      2: "inv_12_profession_alchemy_flask_sindoreipotion_white-.jpg",
+      3: "inv_potion_red.jpg",
+      4: "inv_alchemy_90_flask_red.jpg",
+      5: "6bf_explosive_shard.jpg",
+    };
+    // Real data: Syrupsniffer (Arcane Mage) cast Light's Potential twice on pull #48.
+    const casts: [number, number][] = [[1, 1], [2, 1], [3, 2], [4, 3], [5, 4], [6, 5]];
+    expect(countConsumables(casts, names, icons).combatPotions).toBe(2);
+  });
+});

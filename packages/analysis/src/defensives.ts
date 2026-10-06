@@ -90,9 +90,16 @@ export const DEFENSIVES: Record<string, Defensive[]> = {
 const isHealthstone = (name: string) => /healthstone/i.test(name) && !/^(create|soulburn)/i.test(name);
 const isHealthPotion = (name: string) => /heal(ing|th) potion/i.test(name);
 const isManaPotion = (name: string) => /mana potion/i.test(name);
-/** Damage/throughput potions, e.g. "Potion of Recklessness" or "Draught of Rampant Abandon". */
-const isCombatPotion = (name: string) =>
-  /(potion|draught)/i.test(name) && !isHealthPotion(name) && !isManaPotion(name) && !/^(recycle|create)/i.test(name) && !/cauldron/i.test(name);
+/** Not combat potions, even when their name or icon looks like one. */
+const NOT_COMBAT_POTION = /(flask|phial|elixir|tonic|cauldron|recycle|create|healthstone)/i;
+
+/**
+ * Damage/throughput potions. Names change every expansion and don't always say "potion" (Midnight's is
+ * "Light's Potential"), so the icon counts too: potion icons are named like "…lightpotion…" or "inv_potion_…".
+ * Some flasks use potion icons, which is why flasks and similar are excluded by name.
+ */
+const isCombatPotion = (name: string, icon = "") =>
+  /(potion|draught)/i.test(`${name} ${icon}`) && !isHealthPotion(name) && !isManaPotion(name) && !NOT_COMBAT_POTION.test(name);
 
 export interface ConsumableCounts {
   combatPotions: number;
@@ -102,10 +109,14 @@ export interface ConsumableCounts {
 }
 
 /**
- * Consumables used over the pull, counted from casts by name. (WCL's playerDetails potion and
+ * Consumables used over the pull, counted from casts by name and icon. (WCL's playerDetails potion and
  * healthstone counts read 0 for everyone in current logs, so they can't be trusted.)
  */
-export function countConsumables(casts: [number, number][], names: Record<number, string>): ConsumableCounts {
+export function countConsumables(
+  casts: [number, number][],
+  names: Record<number, string>,
+  icons: Record<number, string> = {},
+): ConsumableCounts {
   const counts: ConsumableCounts = { combatPotions: 0, healthPotions: 0, manaPotions: 0, healthstones: 0 };
   for (const [, id] of casts) {
     const name = names[id];
@@ -113,7 +124,7 @@ export function countConsumables(casts: [number, number][], names: Record<number
     if (isHealthstone(name)) counts.healthstones++;
     else if (isHealthPotion(name)) counts.healthPotions++;
     else if (isManaPotion(name)) counts.manaPotions++;
-    else if (isCombatPotion(name)) counts.combatPotions++;
+    else if (isCombatPotion(name, icons[id])) counts.combatPotions++;
   }
   return counts;
 }

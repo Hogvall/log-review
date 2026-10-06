@@ -1,10 +1,26 @@
 @import "tailwindcss";
 
+/*
+ * Raid-tool palette: neutral near-black, warm off-white text, and color only where it carries meaning
+ * (class colors, damage, healing, debuffs). No brand accent.
+ */
 @theme {
-  --color-ink: #0b0f17;
-  --color-panel: #121826;
-  --color-line: #1f2937;
-  --color-accent: #f5b041;
+  --color-ink: #0f0f11;
+  --color-panel: #151518;
+  --color-raised: #1c1c20;
+  --color-line: #2a2a2f;
+  --color-fg: #e4e0d8;
+  --color-muted: #9b968c;
+  --color-faint: #67635c;
+  --color-dmg: #e5735f;
+  --color-heal: #86c27d;
+  --color-warn: #d9a74a;
+  --color-debuff: #a991de;
+  --color-shield: #7fb0d6;
+  --color-accent: #e4e0d8;
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 html {
@@ -13,4 +29,10 @@ html {
 
 body {
   background: var(--color-ink);
+}
+
+/* Numbers and times line up everywhere. */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }

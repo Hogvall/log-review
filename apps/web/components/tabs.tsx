@@ -28,7 +28,7 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
 
   return (
     <div>
-      <div role="tablist" className="-mx-4 flex gap-1 overflow-x-auto border-b border-line px-4 sm:mx-0 sm:px-0">
+      <div role="tablist" className="-mx-4 flex overflow-x-auto border-y border-line px-4 sm:mx-0 sm:px-0">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -38,17 +38,17 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
               setActive(t.id);
               history.replaceState(null, "", `#${t.id}`);
             }}
-            className={`flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition ${
-              active === t.id ? "border-accent text-white" : "border-transparent text-slate-400 hover:text-slate-200"
+            className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] ${
+              active === t.id ? "border-fg text-fg" : "border-transparent text-faint hover:text-muted"
             }`}
           >
             {t.label}
-            {t.badge && <span className="rounded-full bg-red-500/20 px-1.5 text-xs text-red-300">{t.badge}</span>}
+            {t.badge && <span className="num text-dmg">{t.badge}</span>}
           </button>
         ))}
       </div>
       {tabs.map((t) => (
-        <div key={t.id} role="tabpanel" hidden={active !== t.id} className="pt-5">
+        <div key={t.id} role="tabpanel" hidden={active !== t.id} className="pt-3">
           {t.content}
         </div>
       ))}

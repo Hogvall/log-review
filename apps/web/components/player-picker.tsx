@@ -45,48 +45,34 @@ export function PlayerPicker({
   const me = groups.flatMap((g) => g.players).find((p) => p.name === remembered);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {me && (
-        <Link
-          href={`${baseHref}/${me.id}`}
-          className="flex items-center justify-between rounded-xl border border-accent/50 bg-accent/10 px-4 py-3 hover:bg-accent/20"
-        >
-          <span>
-            <span className="block text-xs uppercase tracking-wide text-accent">Continue as</span>
-            <span className="text-lg font-semibold" style={{ color: classColor(me.classSlug) }}>
-              {me.name}
-            </span>{" "}
-            <span className="text-sm text-slate-400">{specLabel(me.specKey, me.classSlug)}</span>
+        <Link href={`${baseHref}/${me.id}`} className="flex items-baseline gap-3 border border-line bg-panel px-3 py-2 hover:border-muted">
+          <span className="text-[11px] uppercase tracking-[0.07em] text-faint">Continue as</span>
+          <span className="font-semibold" style={{ color: classColor(me.classSlug) }}>
+            {me.name}
           </span>
-          <span aria-hidden className="text-accent">
-            →
-          </span>
+          <span className="text-sm text-muted">{specLabel(me.specKey, me.classSlug)}</span>
         </Link>
       )}
       {groups
         .filter((g) => g.players.length)
         .map((group) => (
-          <div key={group.label}>
-            <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-400">{group.label}</h2>
-            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
+          <section key={group.label} className="border-t border-line">
+            <h2 className="py-2 text-[11px] font-semibold uppercase tracking-[0.07em] text-muted">{group.label}</h2>
+            <ul className="grid grid-cols-1 gap-x-6 sm:grid-cols-2 md:grid-cols-3">
               {group.players.map((p) => (
-                <li key={p.id}>
-                  <Link
-                    href={`${baseHref}/${p.id}`}
-                    className="flex items-center gap-3 rounded-lg border border-line bg-panel px-3 py-2.5 hover:border-slate-500"
-                    style={{ borderLeft: `4px solid ${classColor(p.classSlug)}` }}
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate font-medium" style={{ color: classColor(p.classSlug) }}>
-                        {p.name}
-                      </span>
-                      <span className="block truncate text-xs text-slate-400">{specLabel(p.specKey, p.classSlug)}</span>
+                <li key={p.id} className="border-b border-line/50">
+                  <Link href={`${baseHref}/${p.id}`} className="flex items-baseline justify-between gap-3 py-1.5 hover:bg-panel">
+                    <span className="truncate font-medium" style={{ color: classColor(p.classSlug) }}>
+                      {p.name}
                     </span>
+                    <span className="shrink-0 text-xs text-faint">{specLabel(p.specKey, p.classSlug)}</span>
                   </Link>
                 </li>
               ))}
             </ul>
-          </div>
+          </section>
         ))}
     </div>
   );

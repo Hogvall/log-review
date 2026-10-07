@@ -4,6 +4,8 @@ import {
   type SpecBenchmark,
   POTION_KEY,
   castGaps,
+  executeRate,
+  executeStarts,
   compareToBenchmark,
   findPrecasts,
   isExecuteSpell,
@@ -350,7 +352,7 @@ describe("compareToBenchmark: executes", () => {
     const c = compareToBenchmark(
       { amount: 193_700, durationMs: 432_000, aliveMs: 420_000, itemLevel: 328, activeTimeMs: 400_000, casts: { [KILL_SHOT]: 3 }, damageByAbility: { [KILL_SHOT]: 3_000_000 }, buffUptime: {}, targetShare: {} },
       bench,
-      { executeIds: new Set([KILL_SHOT]) },
+      { executeIds: new Map([[KILL_SHOT, 20 as const]]) },
     );
     expect(c.abilities[0]).toMatchObject({ role: "execute", status: "execute", estDpsGain: null });
     expect(c.findings).toEqual([]);
@@ -420,5 +422,76 @@ describe("fight length (RAI-1)", () => {
     expect(c.amount!.similar).toEqual({ median: 248_000, n: 5, minMs: 350_000, maxMs: 374_000 });
     expect(c.amount!.ratio).toBeCloseTo(193_700 / 248_000);
     expect(similarLengthAmount(bench.amountPoints!.slice(0, 5), 432_000)).toBeNull();
+  });
+});
+
+describe("execute windows (RAI-2)", () => {
+  const KILL_SHOT = 53351;
+  const start = 1_000_000;
+  // Two bosses (council): the earliest one to reach a threshold opens the window. Adds don't count.
+  const series = [
+    { name: "Blood of Ula'tek", type: "Boss", data: [[start, 100], [start + 300_000, 30], [start + 380_000, 19], [start + 430_000, 2]] as [number, number][] },
+    { name: "Breath of Ula'tek", type: "Boss", data: [[start, 100], [start + 300_000, 34], [start + 400_000, 18], [start + 430_000, 4]] as [number, number][] },
+    { name: "Venom Coagulation", type: "NPC", data: [[start + 10_000, 100], [start + 20_000, 1]] as [number, number][] },
+  ];
+
+  it("finds when the first boss reached each threshold", () => {
+    expect(executeStarts(series, start, 432_000)).toEqual({ 15: 430_000, 20: 380_000, 35: 300_000 });
+    expect(executeRate([370_000, 385_000, 400_000, 420_000], 380_000, 420_000)).toEqual({ casts: 3, windowMs: 40_000, perMin: 4.5 });
+  });
+
+  // Top players: kills with a ~70s window under 20%, Kill Shot every ~12s in it (5/min), a proc earlier.
+  const members = [0, 1, 2, 3, 4].map((i) => {
+    const durationMs = 320_000 + i * 5000;
+    const windowStart = durationMs - 70_000;
+    const casts: CastMark[] = [[100_000, KILL_SHOT]];
+    for (let t = windowStart + 2000; t < durationMs; t += 12_000) casts.push([t, KILL_SHOT]);
+    return { casts, precasts: [], durationMs, phases: [], executeStarts: { 15: null, 20: windowStart, 35: durationMs - 110_000 } };
+  });
+  const timeline = timelineBenchmark(members, [], new Set(), new Map([[KILL_SHOT, 20 as const]]))!;
+  const s = (median: number) => ({ median, p25: median * 0.9, p75: median * 1.1, n: 15, usedBy: 1 });
+  const bench: SpecBenchmark = {
+    sampleSize: 15, insufficient: false, amount: s(270_000), durationMs: s(330_000), itemLevel: s(328), activeTimePct: s(1),
+    cpm: { [KILL_SHOT]: s(1.2) }, buffUptime: {}, dtps: {}, targetShare: {}, deathRate: 0, timeline,
+  };
+  const pull = (castTimes: number[], starts: Record<number, number | null>, aliveMs = 420_000) =>
+    compareToBenchmark(
+      {
+        amount: 193_700, durationMs: 432_000, aliveMs, itemLevel: 328, activeTimeMs: 400_000,
+        casts: { [KILL_SHOT]: castTimes.length }, damageByAbility: { [KILL_SHOT]: castTimes.length * 1_000_000 },
+        buffUptime: {}, targetShare: {},
+        castTimes: castTimes.map((t) => [t, KILL_SHOT] as [number, number]),
+        executeStarts: starts,
+      },
+      bench,
+      { executeIds: new Map([[KILL_SHOT, 20 as const]]) },
+    ).abilities[0]!;
+
+  it("learns top players' casts per minute inside the execute window", () => {
+    expect(timeline.execute![KILL_SHOT]!.thresholdPct).toBe(20);
+    expect(timeline.execute![KILL_SHOT]!.perMin.median).toBeCloseTo((6 * 60) / 70, 1);
+  });
+
+  it("judges your casts only inside your own window", () => {
+    // Boss under 20% from 5:00 until you died at 7:00: 2 minutes, top players' pace fits ~10; you cast 3.
+    const low = pull([28_000, 310_000, 400_000, 415_000], { 15: null, 20: 300_000, 35: 250_000 });
+    expect(low.executeWindow).toMatchObject({ thresholdPct: 20, startMs: 300_000, windowMs: 120_000, casts: 3 });
+    expect(low.executeWindow!.expected).toBeCloseTo(10.3, 1);
+    expect(low.status).toBe("low");
+    expect(low.estDpsGain).toBeGreaterThan(0);
+    expect(low.status === "low" && low.role).toBe("execute");
+
+    // On pace inside the window: fine, however few casts that is per minute of the whole fight.
+    const onPace = pull([310_000, 322_000, 334_000, 346_000, 358_000, 370_000, 382_000, 394_000, 406_000, 418_000], { 15: null, 20: 300_000, 35: 250_000 });
+    expect(onPace.status).toBe("ok");
+  });
+
+  it("doesn't judge an execute when the boss never got low while you were alive", () => {
+    const never = pull([28_000, 201_000], { 15: null, 20: null, 35: 380_000 });
+    expect(never.status).toBe("execute");
+    expect(never.executeWindow).toMatchObject({ startMs: null, windowMs: 0 });
+    expect(never.estDpsGain).toBeNull();
+    // Window opened 10s before you died: too short to judge.
+    expect(pull([28_000], { 15: null, 20: 410_000, 35: 380_000 }).status).toBe("execute");
   });
 });

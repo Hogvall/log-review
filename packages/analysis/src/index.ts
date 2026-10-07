@@ -8,3 +8,4 @@ export * from "./compare";
 export * from "./death-story";
 export * from "./defensives";
 export * from "./timeline";
+export * from "./execute";

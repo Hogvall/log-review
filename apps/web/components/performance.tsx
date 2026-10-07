@@ -28,10 +28,24 @@ const SHARE_LABELS: Partial<Record<Status, string>> = { low: "lower", high: "hig
 
 const signedPercent = (diff: number) => `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${Math.abs(Math.round(diff * 100))}%`;
 
-export function StatusBadge({ status, diff, share, situational }: { status: Status; diff?: number | null; share?: boolean; situational?: boolean }) {
-  const s = situational
+export function StatusBadge({
+  status,
+  diff,
+  share,
+  situational,
+  note,
+}: {
+  status: Status;
+  diff?: number | null;
+  share?: boolean;
+  situational?: boolean;
+  /** Overrides the tooltip, e.g. why an execute wasn't judged. */
+  note?: string;
+}) {
+  const base = situational
     ? { label: "situational", className: "text-faint", title: "Movement, defensives and consumables depend on the fight, so they aren't judged." }
     : STATUS[status];
+  const s = note ? { ...base, title: note } : base;
   const label = (!situational && share && SHARE_LABELS[status]) || s.label;
   return (
     <span className="whitespace-nowrap text-xs" title={s.title}>
@@ -95,9 +109,11 @@ export function PerfFindingCard({
       const a = finding.ability;
       return card(
         <>More {ability(a.abilityId)} casts</>,
-        a.expected
-          ? `${a.casts} casts; at top players' pace (${paceText(a.expected)}) your time alive fits ${a.expected.casts}.`
-          : `${perMin(a.playerCpm)} vs top ${perMin(a.benchmark.median)}.`,
+        a.executeWindow && a.executeWindow.windowMs >= 20_000
+          ? `${a.executeWindow.casts} casts while a boss was below ${a.executeWindow.thresholdPct}% (${fightTime(a.executeWindow.windowMs)}); top players cast it ${a.executeWindow.topPerMin.toFixed(1)} times a minute there, which fits ${a.executeWindow.expected.toFixed(1)}.`
+          : a.expected
+            ? `${a.casts} casts; at top players' pace (${paceText(a.expected)}) your time alive fits ${a.expected.casts}.`
+            : `${perMin(a.playerCpm)} vs top ${perMin(a.benchmark.median)}.`,
         a.estDpsGain,
         a.benchmark.median <= 2
           ? "Cooldown: use it on cooldown unless you're holding it for a phase."
@@ -232,6 +248,29 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
             </tr>
             {rows.map((a) => {
               const max = Math.max(a.playerCpm, a.benchmark.p75) * 1.15;
+              // Executes with a known window: judged by count inside the time the boss was in execute range.
+              const ew = a.executeWindow;
+              if (ew && ew.windowMs >= 20_000) {
+                return (
+                  <tr key={a.abilityId}>
+                    <td className="px-4 py-2 sm:pl-0">
+                      <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />
+                    </td>
+                    <td className="px-2 py-2 text-right" title={`Casts while a boss was at or below ${ew.thresholdPct}% (${fightTime(ew.windowMs)} of your time alive)`}>
+                      {ew.casts}× <span className="text-xs text-faint">&lt;{ew.thresholdPct}%</span>
+                    </td>
+                    <td className="px-2 py-2 text-right text-muted" title={`Top players cast it ${ew.topPerMin.toFixed(1)} times a minute in their execute window`}>
+                      {ew.expected.toFixed(1)}× fit
+                    </td>
+                    <td className="px-2 py-2">
+                      <RangeBar player={ew.casts} p25={ew.expected} median={ew.expected} p75={ew.expected} max={Math.max(ew.casts, ew.expected, 1) * 1.15} />
+                    </td>
+                    <td className="px-4 py-2 sm:pr-0">
+                      <StatusBadge status={a.status} diff={ew.expected ? ew.casts / ew.expected - 1 : null} />
+                    </td>
+                  </tr>
+                );
+              }
               // Cooldowns with a known pace are judged by count for this fight's length, not per minute.
               if (a.expected) {
                 const e = a.expected;
@@ -268,6 +307,13 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
                       status={a.status}
                       diff={a.status === "execute" || !a.benchmark.median ? null : a.playerCpm / a.benchmark.median - 1}
                       situational={a.role === "utility"}
+                      note={
+                        a.executeWindow
+                          ? a.executeWindow.startMs == null
+                            ? `No boss got below ${a.executeWindow.thresholdPct}% this pull, so it isn't judged.`
+                            : `A boss was below ${a.executeWindow.thresholdPct}% for only ${Math.round(a.executeWindow.windowMs / 1000)}s while you were alive: too short to judge.`
+                          : undefined
+                      }
                     />
                   </td>
                 </tr>
@@ -297,8 +343,9 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
         pace (first use, then one every so often; hover for it) fits in your time alive, so long and short pulls compare
         fairly. Only abilities that at least half of the top players use are shown. More isn't
         better: top players cast what their rotation needs, so casting a spell more than them usually means it's replacing a
-        stronger one. Movement, defensives and consumables are situational and executes depend on boss health, so those aren't
-        judged.
+        stronger one. Movement, defensives and consumables are situational, so they aren't judged. Executes are judged only
+        inside the time a boss was in execute range ("3× &lt;20%"), against top players' rate in theirs; when no boss got
+        there, they show "boss health".
       </p>
     </div>
   );

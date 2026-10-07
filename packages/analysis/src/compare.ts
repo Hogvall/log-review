@@ -1,4 +1,7 @@
 import { type SpecBenchmark, isCooldownCpm } from "./benchmark";
+import type { ExecuteThreshold } from "./defensives";
+import { type ExecuteStarts, executeRate } from "./execute";
+import { MIN_EXECUTE_WINDOW_MS } from "./timeline";
 import { type KeyedSummary, summarize } from "./stats";
 import type { TimelineFinding } from "./timeline";
 
@@ -19,6 +22,10 @@ export interface PlayerPerformance {
   buffUptime: Record<string, number>;
   /** Target name → share of the player's damage (0..1). */
   targetShare: Record<string, number>;
+  /** [fight time, ability ID] of each cast, for judging execute spells inside their window. */
+  castTimes?: [number, number][];
+  /** When bosses reached each execute threshold in this pull; null when not fetched. */
+  executeStarts?: Partial<ExecuteStarts> | null;
 }
 
 /** "execute": depends on how long the boss spent at low health, so it isn't judged. */
@@ -40,6 +47,11 @@ export interface AbilityComparison {
    * every `everyMs`) fits in your time alive. Judged instead of casts per minute, which depends on fight length.
    */
   expected: { casts: number; firstMs: number; everyMs: number } | null;
+  /**
+   * Execute spells: your casts while the boss was in execute range vs what top players' rate in that
+   * window fits. `windowMs` 0 means the boss never got there while you were alive, so it isn't judged.
+   */
+  executeWindow: { thresholdPct: number; startMs: number | null; windowMs: number; casts: number; expected: number; topPerMin: number } | null;
   status: Status;
   /** Rough DPS gained by casting as often as the median top player, when we can estimate it. */
   estDpsGain: number | null;
@@ -133,8 +145,8 @@ export interface CompareOptions {
   utilityIds?: Set<number>;
   /** Left out of the tables entirely (e.g. Bloodlust, which one player casts for the raid). */
   hiddenIds?: Set<number>;
-  /** Execute spells: their cast rate depends on boss health, so they're never judged. */
-  executeIds?: Set<number>;
+  /** Execute spells → health threshold: judged per minute of the time the boss spent below it, when known. */
+  executeIds?: Map<number, ExecuteThreshold>;
 }
 
 /**
@@ -159,10 +171,26 @@ function status(player: number, b: KeyedSummary, minGap: (median: number) => boo
 export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts: CompareOptions = {}): Comparison {
   const utility = opts.utilityIds ?? new Set<number>();
   const hidden = opts.hiddenIds ?? new Set<number>();
-  const executes = opts.executeIds ?? new Set<number>();
+  const executes = opts.executeIds ?? new Map<number, ExecuteThreshold>();
   const aliveMin = p.aliveMs / 60_000;
   const durationSec = p.durationMs / 1000;
   const activeTime = p.aliveMs ? p.activeTimeMs / p.aliveMs : 0;
+
+  function judgeExecute(id: number): AbilityComparison["executeWindow"] {
+    const top = b.timeline?.execute?.[id];
+    const thresholdPct = executes.get(id);
+    if (!top || !thresholdPct || !p.executeStarts || !p.castTimes) return null;
+    const startMs = p.executeStarts[thresholdPct] ?? null;
+    const rate = startMs == null ? { casts: 0, windowMs: 0 } : executeRate(p.castTimes.filter(([, a]) => a === id).map(([t]) => t), startMs, p.aliveMs);
+    return {
+      thresholdPct,
+      startMs,
+      windowMs: rate.windowMs,
+      casts: rate.casts,
+      expected: (top.perMin.median * rate.windowMs) / 60_000,
+      topPerMin: top.perMin.median,
+    };
+  }
 
   const abilities: AbilityComparison[] = Object.entries(b.cpm)
     .filter(([id]) => !hidden.has(Number(id)))
@@ -194,11 +222,26 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
         const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
         s = status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO || bigGain);
       }
-      if (role === "execute") s = "execute";
+      // Executes: judged only inside the execute window, against top players' rate in theirs.
+      const executeWindow = role === "execute" ? judgeExecute(Number(id)) : null;
+      if (role === "execute") {
+        s = "execute";
+        if (executeWindow && executeWindow.windowMs >= MIN_EXECUTE_WINDOW_MS) {
+          missedCasts = Math.max(0, executeWindow.expected - executeWindow.casts);
+          const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
+          const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
+          s =
+            missedCasts >= 1 && (executeWindow.casts < executeWindow.expected * LOW_CPM_RATIO || bigGain)
+              ? executeWindow.casts === 0 ? "missing" : "low"
+              : executeWindow.casts > executeWindow.expected + 1
+                ? "high"
+                : "ok";
+        } else missedCasts = 0;
+      }
       if (s === "missing" && bench.usedBy < MISSING_USED_BY) s = "low";
       const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
       const estDpsGain = (s === "low" || s === "missing") && gain > 0 ? gain : null;
-      return { abilityId: Number(id), role, playerCpm, casts, benchmark: bench, expected, status: s, estDpsGain };
+      return { abilityId: Number(id), role, playerCpm, casts, benchmark: bench, expected, executeWindow, status: s, estDpsGain };
     })
     .sort((x, y) => y.benchmark.median - x.benchmark.median);
 
@@ -229,7 +272,8 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
 
   // Only abilities that clearly affect output become findings; the rest is still shown in the tables.
   const impactful = (a: AbilityComparison) => {
-    if (a.role !== "damage") return false;
+    // Utility never; executes only when judged inside their window (otherwise their status is "execute").
+    if (a.role === "utility") return false;
     // Cooldowns whose buff matters count even when the cast itself does little damage.
     if ((b.buffUptime[a.abilityId]?.median ?? 0) >= IMPACTFUL_BUFF_UPTIME) return true;
     return a.estDpsGain != null && (!p.amount || a.estDpsGain >= p.amount * MIN_FINDING_GAIN_SHARE);

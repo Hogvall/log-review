@@ -74,7 +74,7 @@ export async function resetStaleJobs(db: Db) {
 
 /**
  * Re-queues finished fight jobs of running snapshots whose ranked players are missing a cast timeline or
- * whose fight is missing its phases (crawled before those were stored). The fight job only fetches what's
+ * whose fight is missing its phases or execute check (crawled before those were stored). The fight job only fetches what's
  * missing, and the boss is re-aggregated once its jobs are done again. Returns how many were re-queued.
  */
 export async function requeueMissingTimelines(db: Db, difficulties: number[]): Promise<number> {
@@ -86,7 +86,8 @@ export async function requeueMissingTimelines(db: Db, difficulties: number[]): P
       AND (
         EXISTS (
           SELECT 1 FROM fights f
-          WHERE f.report_code = j.payload->>'reportCode' AND f.fight_id = (j.payload->>'fightId')::int AND f.phases IS NULL
+          WHERE f.report_code = j.payload->>'reportCode' AND f.fight_id = (j.payload->>'fightId')::int
+            AND (f.phases IS NULL OR f.execute_starts IS NULL)
         )
         OR EXISTS (
           SELECT 1 FROM ranking_entries r

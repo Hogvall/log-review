@@ -1,5 +1,6 @@
 import type { PlayerMetrics } from "./fight-metrics";
 import { type KeyedSummary, type Summary, summarize, summarizeMaps } from "./stats";
+import type { ExecuteThreshold } from "./defensives";
 import { type TimelineBenchmark, type TimelineMember, timelineBenchmark } from "./timeline";
 
 /** One ranked player with their fight metrics, as input to a spec benchmark. */
@@ -41,10 +42,15 @@ export const MIN_SAMPLE = 5;
  * Bump when benchmark aggregation changes (new fields, different math). The worker re-aggregates every
  * snapshot whose stored aggregation is older, so the site picks up the change without a new crawl.
  */
-export const BENCHMARK_VERSION = 2;
+export const BENCHMARK_VERSION = 3;
 
 /** Median-based benchmark for one spec on one boss and difficulty. */
-export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE, potionIds = new Set<number>()): SpecBenchmark {
+export function specBenchmark(
+  cohort: CohortMember[],
+  minSample = MIN_SAMPLE,
+  potionIds = new Set<number>(),
+  executeIds: Map<number, ExecuteThreshold> = new Map(),
+): SpecBenchmark {
   const withBuffs = cohort.filter((c) => c.buffUptime);
   const cpm = summarizeMaps(cohort.map((c) => c.metrics.cpm));
   const cooldownIds = Object.entries(cpm).filter(([, s]) => isCooldownCpm(s)).map(([id]) => Number(id));
@@ -66,6 +72,7 @@ export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE, po
       cohort.flatMap((c) => (c.timeline ? [c.timeline] : [])),
       cooldownIds,
       potionIds,
+      executeIds,
     ),
   };
 }

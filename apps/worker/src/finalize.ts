@@ -1,4 +1,5 @@
 import {
+  BENCHMARK_VERSION,
   type CastMark,
   type CohortMember,
   type PhaseSpan,
@@ -23,24 +24,26 @@ import {
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 
 /**
- * Aggregates each boss and difficulty of a running snapshot as soon as all of its jobs are finished,
- * so the site can use Mythic data on day one instead of waiting for the whole crawl. A group is
- * aggregated again when any of its jobs finished after its last aggregation (e.g. after a backfill).
+ * Aggregates each boss and difficulty of a snapshot as soon as all of its jobs are finished, so the site
+ * can use Mythic data on day one instead of waiting for the whole crawl. A group is aggregated again when
+ * any of its jobs finished after its last aggregation (e.g. after a backfill), or when it was aggregated
+ * by older code (BENCHMARK_VERSION), so analysis changes reach existing snapshots without a new crawl.
  */
 export async function aggregateReadyGroups(db: Db, difficulties: number[]) {
   const ready = await db.execute<{ snapshot_id: number; encounter_id: number; difficulty: number }>(sql`
     SELECT DISTINCT r.snapshot_id, r.encounter_id, r.difficulty
     FROM ranking_entries r
-    JOIN snapshots s ON s.id = r.snapshot_id AND s.status = 'running'
+    JOIN snapshots s ON s.id = r.snapshot_id
     WHERE r.difficulty IN ${difficulties.length ? difficulties : [-1]}
     AND NOT EXISTS (
       SELECT 1 FROM aggregations a
       WHERE a.snapshot_id = r.snapshot_id AND a.encounter_id = r.encounter_id AND a.difficulty = r.difficulty
-        AND a.aggregated_at >= (
+        AND a.version >= ${BENCHMARK_VERSION}
+        AND a.aggregated_at >= COALESCE((
           SELECT max(j.updated_at) FROM jobs j
           WHERE j.snapshot_id = r.snapshot_id
             AND (j.payload->>'encounterId')::int = r.encounter_id AND (j.payload->>'difficulty')::int = r.difficulty
-        )
+        ), 'epoch')
     )
     AND NOT EXISTS (
       SELECT 1 FROM jobs j
@@ -188,8 +191,11 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
     }
     await tx
       .insert(aggregations)
-      .values({ snapshotId, encounterId, difficulty })
-      .onConflictDoUpdate({ target: [aggregations.snapshotId, aggregations.encounterId, aggregations.difficulty], set: { aggregatedAt: sql`now()` } });
+      .values({ snapshotId, encounterId, difficulty, version: BENCHMARK_VERSION })
+      .onConflictDoUpdate({
+        target: [aggregations.snapshotId, aggregations.encounterId, aggregations.difficulty],
+        set: { aggregatedAt: sql`now()`, version: BENCHMARK_VERSION },
+      });
   });
   console.log(`  encounter ${encounterId} difficulty ${difficulty}: ${cohorts.size} specs, ${fightPlayers.length} players`);
 }

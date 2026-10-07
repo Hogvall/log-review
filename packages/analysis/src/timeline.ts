@@ -153,6 +153,11 @@ export interface TimelineBenchmark {
   sampleSize: number;
   /** Fight time of the first cast, among players who cast it; `usedBy` is the share who did. Keyed by ability ID or POTION_KEY. */
   firstUse: Record<string, KeyedSummary>;
+  /**
+   * Average time between casts of each cooldown, among players who cast it at least twice (keyed by ability
+   * ID). With firstUse it says how many uses fit in a fight of any length.
+   */
+  cadence?: Record<string, Summary>;
   /** Share of top players with a precast, and the most common precast spell. */
   precast: { share: number; abilityId: number | null };
   /** Per phase ID (minute index for bosses without phases): casts per minute and idle share. */
@@ -179,6 +184,16 @@ export function timelineBenchmark(members: TimelineMember[], cooldownIds: number
     if (times.length) firstUse[key] = { ...summarize(times), usedBy: times.length / members.length };
   }
 
+  const cadence: Record<string, Summary> = {};
+  for (const id of cooldownIds) {
+    if (potionIds.has(id)) continue;
+    const intervals = sortedMembers.flatMap((m) => {
+      const times = m.casts.filter(([, a]) => a === id).map(([t]) => t);
+      return times.length >= 2 ? [(times.at(-1)! - times[0]!) / (times.length - 1)] : [];
+    });
+    if (intervals.length >= MIN_TIMELINE_SAMPLE) cadence[id] = summarize(intervals);
+  }
+
   const precastCounts = new Map<number, number>();
   for (const m of members) for (const id of m.precasts) precastCounts.set(id, (precastCounts.get(id) ?? 0) + 1);
   const commonPrecast = [...precastCounts].sort((a, b) => b[1] - a[1])[0];
@@ -203,6 +218,7 @@ export function timelineBenchmark(members: TimelineMember[], cooldownIds: number
   return {
     sampleSize: members.length,
     firstUse,
+    cadence,
     precast: {
       share: members.filter((m) => m.precasts.length).length / members.length,
       abilityId: commonPrecast?.[0] ?? null,

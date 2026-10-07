@@ -26,6 +26,8 @@ export interface SpecBenchmark {
   targetShare: Record<string, KeyedSummary>;
   /** Share of the cohort that died at least once. */
   deathRate: number;
+  /** Each top player's DPS and kill time, to compare with the players whose kills were closest in length. */
+  amountPoints?: { amount: number; durationMs: number }[];
   /** Opener, precast and per-phase medians; missing in older snapshots or with too few timelines. */
   timeline?: TimelineBenchmark | null;
 }
@@ -34,6 +36,12 @@ export interface SpecBenchmark {
 export const isCooldownCpm = (s: KeyedSummary) => s.median > 0 && s.median <= 2;
 
 export const MIN_SAMPLE = 5;
+
+/**
+ * Bump when benchmark aggregation changes (new fields, different math). The worker re-aggregates every
+ * snapshot whose stored aggregation is older, so the site picks up the change without a new crawl.
+ */
+export const BENCHMARK_VERSION = 2;
 
 /** Median-based benchmark for one spec on one boss and difficulty. */
 export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE, potionIds = new Set<number>()): SpecBenchmark {
@@ -53,6 +61,7 @@ export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE, po
     dtps: summarizeMaps(cohort.map((c) => c.metrics.dtps), 0),
     targetShare: summarizeMaps(cohort.map((c) => c.metrics.targetShare)),
     deathRate: cohort.length ? cohort.filter((c) => c.metrics.deaths > 0).length / cohort.length : 0,
+    amountPoints: cohort.map((c) => ({ amount: c.amount, durationMs: c.metrics.durationMs })),
     timeline: timelineBenchmark(
       cohort.flatMap((c) => (c.timeline ? [c.timeline] : [])),
       cooldownIds,

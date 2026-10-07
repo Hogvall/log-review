@@ -1,5 +1,5 @@
-import type { SpecBenchmark } from "./benchmark";
-import type { KeyedSummary } from "./stats";
+import { type SpecBenchmark, isCooldownCpm } from "./benchmark";
+import { type KeyedSummary, summarize } from "./stats";
 import type { TimelineFinding } from "./timeline";
 
 /** Everything we measure about the viewer's own performance in one fight. */
@@ -32,10 +32,42 @@ export interface AbilityComparison {
   /** Utility (movement, defensives, consumables) is shown but never a finding; executes aren't judged. */
   role: AbilityRole;
   playerCpm: number;
+  /** Your casts this pull. */
+  casts: number;
   benchmark: KeyedSummary;
+  /**
+   * Cooldowns only, when top players' timelines are known: how many casts their pace (first use, then one
+   * every `everyMs`) fits in your time alive. Judged instead of casts per minute, which depends on fight length.
+   */
+  expected: { casts: number; firstMs: number; everyMs: number } | null;
   status: Status;
   /** Rough DPS gained by casting as often as the median top player, when we can estimate it. */
   estDpsGain: number | null;
+}
+
+/** Your DPS next to the top players whose kills were closest in length to your pull. */
+export interface SimilarLengthAmount {
+  median: number;
+  /** How many top players, and the range of their kill times. */
+  n: number;
+  minMs: number;
+  maxMs: number;
+}
+
+/** Top players compared with when their kill length is close to yours (longer fights mean lower DPS). */
+const SIMILAR_LENGTH_PLAYERS = 5;
+/** Below this many top players, picking the closest few isn't meaningful. */
+const MIN_POINTS_FOR_SIMILAR = 8;
+
+export function similarLengthAmount(points: { amount: number; durationMs: number }[] | undefined, durationMs: number): SimilarLengthAmount | null {
+  if (!points || points.length < MIN_POINTS_FOR_SIMILAR) return null;
+  const closest = [...points].sort((a, b) => Math.abs(a.durationMs - durationMs) - Math.abs(b.durationMs - durationMs)).slice(0, SIMILAR_LENGTH_PLAYERS);
+  return {
+    median: summarize(closest.map((c) => c.amount)).median,
+    n: closest.length,
+    minMs: Math.min(...closest.map((c) => c.durationMs)),
+    maxMs: Math.max(...closest.map((c) => c.durationMs)),
+  };
 }
 
 export interface BuffComparison {
@@ -64,7 +96,8 @@ export type PerfFinding =
 export interface Comparison {
   sampleSize: number;
   insufficient: boolean;
-  amount: { player: number; median: number; p25: number; p75: number; ratio: number } | null;
+  /** `ratio` is against `similar` (top players with the closest kill lengths) when known, else the median. */
+  amount: { player: number; median: number; p25: number; p75: number; similar: SimilarLengthAmount | null; ratio: number } | null;
   itemLevel: { player: number | null; median: number };
   durationMs: { player: number; median: number };
   activeTime: { player: number; median: number; p25: number };
@@ -104,6 +137,18 @@ export interface CompareOptions {
   executeIds?: Set<number>;
 }
 
+/**
+ * How many casts of a cooldown top players' pace fits in your time alive: the first at their median first
+ * use, then one every median interval. Null when their timelines don't say (older snapshots, rare spells).
+ */
+function expectedCasts(b: SpecBenchmark, id: string, aliveMs: number): AbilityComparison["expected"] {
+  const first = b.timeline?.firstUse[id];
+  const every = b.timeline?.cadence?.[id];
+  if (!first || !every || first.usedBy < 0.5 || every.median <= 0) return null;
+  const casts = aliveMs < first.median ? 0 : 1 + Math.floor((aliveMs - first.median) / every.median);
+  return { casts, firstMs: first.median, everyMs: every.median };
+}
+
 function status(player: number, b: KeyedSummary, minGap: (median: number) => boolean): Status {
   if (player === 0 && b.median > 0) return "missing";
   if (player < b.p25 && minGap(b.median)) return "low";
@@ -125,14 +170,35 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
       const casts = p.casts[id] ?? 0;
       const playerCpm = aliveMin ? casts / aliveMin : 0;
       const damagePerCast = casts ? (p.damageByAbility[id] ?? 0) / casts : 0;
-      const missedCasts = Math.max(0, (bench.median - playerCpm) * aliveMin);
-      const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
-      const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
       const role: AbilityRole = executes.has(Number(id)) ? "execute" : utility.has(Number(id)) ? "utility" : "damage";
-      let s: Status = role === "execute" ? "execute" : status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO || bigGain);
+      const expected = isCooldownCpm(bench) ? expectedCasts(b, id, p.aliveMs) : null;
+
+      let s: Status;
+      let missedCasts: number;
+      if (expected) {
+        // Cooldowns: judged by count against what top players' pace fits in your time alive.
+        missedCasts = Math.max(0, expected.casts - casts);
+        const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
+        const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
+        s =
+          casts === 0 && expected.casts > 0
+            ? "missing"
+            : missedCasts >= 1 && (casts < expected.casts * LOW_CPM_RATIO || bigGain)
+              ? "low"
+              : casts > expected.casts + 1
+                ? "high"
+                : "ok";
+      } else {
+        missedCasts = Math.max(0, (bench.median - playerCpm) * aliveMin);
+        const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
+        const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
+        s = status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO || bigGain);
+      }
+      if (role === "execute") s = "execute";
       if (s === "missing" && bench.usedBy < MISSING_USED_BY) s = "low";
+      const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
       const estDpsGain = (s === "low" || s === "missing") && gain > 0 ? gain : null;
-      return { abilityId: Number(id), role, playerCpm, benchmark: bench, status: s, estDpsGain };
+      return { abilityId: Number(id), role, playerCpm, casts, benchmark: bench, expected, status: s, estDpsGain };
     })
     .sort((x, y) => y.benchmark.median - x.benchmark.median);
 
@@ -188,7 +254,11 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
     insufficient: b.insufficient,
     amount:
       p.amount != null
-        ? { player: p.amount, median: b.amount.median, p25: b.amount.p25, p75: b.amount.p75, ratio: p.amount / b.amount.median }
+        ? (() => {
+            const similar = similarLengthAmount(b.amountPoints, p.durationMs);
+            // The ratio uses the closest kill lengths when we can: longer fights mean lower DPS for everyone.
+            return { player: p.amount, median: b.amount.median, p25: b.amount.p25, p75: b.amount.p75, similar, ratio: p.amount / (similar?.median ?? b.amount.median) };
+          })()
         : null,
     itemLevel: { player: p.itemLevel, median: b.itemLevel.median },
     durationMs: { player: p.durationMs, median: b.durationMs.median },

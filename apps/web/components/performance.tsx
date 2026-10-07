@@ -41,6 +41,9 @@ export function StatusBadge({ status, diff, share, situational }: { status: Stat
   );
 }
 
+/** "first at 0:18, then every 45s" */
+const paceText = (e: { firstMs: number; everyMs: number }) => `first at ${fightTime(e.firstMs)}, then every ${Math.round(e.everyMs / 1000)}s`;
+
 const perMin = (n: number) => `${n.toFixed(n < 2 ? 2 : 1)}/min`;
 
 function Gain({ value, amount }: { value: number | null; amount: number | null }) {
@@ -92,7 +95,9 @@ export function PerfFindingCard({
       const a = finding.ability;
       return card(
         <>More {ability(a.abilityId)} casts</>,
-        `${perMin(a.playerCpm)} vs top ${perMin(a.benchmark.median)}.`,
+        a.expected
+          ? `${a.casts} casts; at top players' pace (${paceText(a.expected)}) your time alive fits ${a.expected.casts}.`
+          : `${perMin(a.playerCpm)} vs top ${perMin(a.benchmark.median)}.`,
         a.estDpsGain,
         a.benchmark.median <= 2
           ? "Cooldown: use it on cooldown unless you're holding it for a phase."
@@ -191,7 +196,8 @@ function onePerName<T extends { abilityId: number; benchmark: { median: number }
 export function RotationTable({ comparison, abilities }: { comparison: Comparison; abilities: AbilityInfo }) {
   const rows: AbilityComparison[] = onePerName(comparison.abilities, abilities);
   const ability = (id: number) => <Ability id={id} name={abilities[id]?.name} icon={abilities[id]?.icon} />;
-  const diffOf = (a: AbilityComparison) => (a.benchmark.median ? a.playerCpm / a.benchmark.median - 1 : 0);
+  const diffOf = (a: AbilityComparison) =>
+    a.expected ? (a.expected.casts ? a.casts / a.expected.casts - 1 : 0) : a.benchmark.median ? a.playerCpm / a.benchmark.median - 1 : 0;
   // A rotational spell cast more while another is cast less: the extra casts are likely replacing it.
   const rotational = (a: AbilityComparison) => a.role === "damage" && a.benchmark.median >= 2;
   const lows = rows.filter((a) => rotational(a) && (a.status === "low" || a.status === "missing"));
@@ -226,6 +232,27 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
             </tr>
             {rows.map((a) => {
               const max = Math.max(a.playerCpm, a.benchmark.p75) * 1.15;
+              // Cooldowns with a known pace are judged by count for this fight's length, not per minute.
+              if (a.expected) {
+                const e = a.expected;
+                return (
+                  <tr key={a.abilityId}>
+                    <td className="px-4 py-2 sm:pl-0">
+                      <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />
+                    </td>
+                    <td className="px-2 py-2 text-right">{a.casts}×</td>
+                    <td className="px-2 py-2 text-right text-muted" title={paceText(e)}>
+                      {e.casts}× fit
+                    </td>
+                    <td className="px-2 py-2">
+                      <RangeBar player={a.casts} p25={e.casts} median={e.casts} p75={e.casts} max={Math.max(a.casts, e.casts, 1) * 1.15} />
+                    </td>
+                    <td className="px-4 py-2 sm:pr-0">
+                      <StatusBadge status={a.status} diff={e.casts ? a.casts / e.casts - 1 : null} situational={a.role === "utility"} />
+                    </td>
+                  </tr>
+                );
+              }
               return (
                 <tr key={a.abilityId}>
                   <td className="px-4 py-2 sm:pl-0">
@@ -266,7 +293,9 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
         </div>
       )}
       <p className="mt-3 text-xs text-faint">
-        Casts per minute while you were alive. Only abilities that at least half of the top players use are shown. More isn't
+        Casts per minute while you were alive. Cooldowns show a count instead ("5× of 9× fit"): how many casts top players'
+        pace (first use, then one every so often; hover for it) fits in your time alive, so long and short pulls compare
+        fairly. Only abilities that at least half of the top players use are shown. More isn't
         better: top players cast what their rotation needs, so casting a spell more than them usually means it's replacing a
         stronger one. Movement, defensives and consumables are situational and executes depend on boss health, so those aren't
         judged.

@@ -143,7 +143,10 @@ export const benchmarks = pgTable(
   (t) => [primaryKey({ columns: [t.snapshotId, t.encounterId, t.difficulty, t.specKey] })],
 );
 
-/** When each boss and difficulty of a snapshot was last aggregated, so new data (e.g. a backfill) triggers a re-run. */
+/**
+ * When (and with which code version) each boss and difficulty of a snapshot was last aggregated, so new data
+ * (e.g. a backfill) or new aggregation code triggers a re-run.
+ */
 export const aggregations = pgTable(
   "aggregations",
   {
@@ -153,6 +156,8 @@ export const aggregations = pgTable(
     encounterId: integer("encounter_id").notNull(),
     difficulty: integer("difficulty").notNull(),
     aggregatedAt: timestamp("aggregated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** BENCHMARK_VERSION it was aggregated with; older ones are re-aggregated after a code change. */
+    version: integer("version").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.snapshotId, t.encounterId, t.difficulty] })],
 );

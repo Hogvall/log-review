@@ -286,7 +286,24 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
               <Stat
                 label="DPS"
                 value={compact(comparison.amount.player)}
-                sub={`${percent(comparison.amount.ratio)} of top median ${compact(comparison.amount.median)}`}
+                sub={
+                  comparison.amount.similar ? (
+                    <>
+                      <span title={`Median of the ${comparison.amount.similar.n} top players whose kills were closest in length to this pull. Longer fights mean lower DPS for everyone.`}>
+                        {percent(comparison.amount.ratio)} of {compact(comparison.amount.similar.median)}: top kills of{" "}
+                        {comparison.amount.similar.minMs === comparison.amount.similar.maxMs
+                          ? fightTime(comparison.amount.similar.minMs)
+                          : `${fightTime(comparison.amount.similar.minMs)}–${fightTime(comparison.amount.similar.maxMs)}`}
+                      </span>
+                      <br />
+                      <span className="text-faint">
+                        {percent(comparison.amount.player / comparison.amount.median)} of all top {comparison.sampleSize} ({compact(comparison.amount.median)})
+                      </span>
+                    </>
+                  ) : (
+                    `${percent(comparison.amount.ratio)} of top median ${compact(comparison.amount.median)}`
+                  )
+                }
                 tone={comparison.amount.ratio < 0.85 ? "bad" : comparison.amount.ratio >= 1 ? "good" : undefined}
               />
             )}

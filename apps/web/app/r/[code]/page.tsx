@@ -32,10 +32,10 @@ export default async function ReportPage({
   if (fight === "last" && report.fights.length) redirect(`/r/${code}/${report.fights.at(-1)!.id}`);
 
   // Group pulls by boss and difficulty, numbering pulls in order.
-  const groups = new Map<string, { name: string; difficulty: number | null; pulls: (Fight & { pull: number })[] }>();
+  const groups = new Map<string, { name: string; encounterId: number; difficulty: number | null; pulls: (Fight & { pull: number })[] }>();
   for (const f of report.fights) {
     const key = `${f.encounterID}:${f.difficulty}`;
-    const group = groups.get(key) ?? { name: f.name, difficulty: f.difficulty, pulls: [] };
+    const group = groups.get(key) ?? { name: f.name, encounterId: f.encounterID, difficulty: f.difficulty, pulls: [] };
     group.pulls.push({ ...f, pull: group.pulls.length + 1 });
     groups.set(key, group);
   }
@@ -67,6 +67,15 @@ export default async function ReportPage({
               {last.id !== best.id && (
                 <Link href={`/r/${code}/${last.id}`} className={buttonClass}>
                   Last pull
+                </Link>
+              )}
+              {group.pulls.length > 1 && group.difficulty && (
+                <Link
+                  href={`/r/${code}/raid/${group.encounterId}-${group.difficulty}`}
+                  className={buttonClass}
+                  title="For raid leaders: what people die to over all pulls, and whether the raid's damage is enough"
+                >
+                  Raid night
                 </Link>
               )}
             </div>

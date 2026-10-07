@@ -206,3 +206,18 @@ export const playerFightCache = pgTable(
   },
   (t) => [primaryKey({ columns: [t.reportCode, t.fightId, t.actorId] })],
 );
+
+/**
+ * WCL data fetched for a whole report view (e.g. a raid night on one boss), keyed by what was fetched.
+ * Logs don't change, but live logs gain pulls, so keys include the last pull covered.
+ */
+export const reportCache = pgTable(
+  "report_cache",
+  {
+    reportCode: text("report_code").notNull(),
+    key: text("key").notNull(),
+    data: jsonb("data").notNull(),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.reportCode, t.key] })],
+);

@@ -224,3 +224,48 @@ export function reviewDefensives(opts: {
     healthPotion: consumable(isHealthPotion),
   };
 }
+
+/** Movement spells: casting them more often or earlier doesn't raise damage. */
+const MOVEMENT = new Set([
+  "Blink", "Shimmer", "Ice Floes", "Displacement",
+  "Disengage", "Aspect of the Cheetah",
+  "Fel Rush", "Vengeful Retreat",
+  "Heroic Leap", "Charge", "Intervene",
+  "Roll", "Chi Torpedo", "Tiger's Lust", "Transcendence: Transfer",
+  "Dash", "Tiger Dash", "Wild Charge", "Stampeding Roar",
+  "Sprint", "Shadowstep", "Grappling Hook",
+  "Hover",
+  "Spiritwalker's Grace", "Ghost Wolf", "Gust of Wind",
+  "Demonic Circle: Teleport", "Burning Rush",
+  "Death's Advance", "Wraith Walk",
+  "Divine Steed",
+  "Angelic Feather", "Leap of Faith", "Levitate",
+  "Door of Shadows",
+]);
+
+/** Raid-wide buffs one player covers for the whole group. */
+const RAID_UTILITY = new Set(["Bloodlust", "Heroism", "Time Warp", "Primal Rage", "Fury of the Aspects"]);
+
+/** Defensive barriers that aren't in the death-review list (they're used on cooldown, not saved). */
+const BARRIERS = /^(Ice|Blazing|Prismatic|Mass) Barrier$/;
+
+const ALL_DEFENSIVES = new Set(Object.values(DEFENSIVES).flatMap((list) => list.map((d) => d.name)));
+
+export const isRaidUtility = (name: string) => RAID_UTILITY.has(name);
+
+/**
+ * Spells that don't raise damage when cast more often or earlier: movement, defensives, raid-wide utility
+ * and consumables. They stay in the tables for context but never become DPS findings.
+ */
+export function isUtilitySpell(name: string, icon = ""): boolean {
+  return (
+    MOVEMENT.has(name) ||
+    ALL_DEFENSIVES.has(name) ||
+    BARRIERS.test(name) ||
+    RAID_UTILITY.has(name) ||
+    isCombatPotion(name, icon) ||
+    isHealthstone(name) ||
+    isHealthPotion(name) ||
+    isManaPotion(name)
+  );
+}

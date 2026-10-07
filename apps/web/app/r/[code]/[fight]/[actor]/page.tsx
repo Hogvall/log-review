@@ -52,7 +52,6 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
     bossGuide,
     comparison,
     timeline,
-    phases,
     fixes,
     abilities,
     names,
@@ -238,7 +237,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
           )}
           <PullStart timeline={timeline} abilities={abilities} />
           <Opener timeline={timeline} abilities={abilities} topName={topPlayer?.name ?? null} />
-          <PhaseActivityTable timeline={timeline} phases={phases} />
+          <PhaseActivityTable timeline={timeline} />
           {comparison && topPlayer && (
             <div>
               <h3 className="mb-2 font-medium text-fg">Cooldowns over the fight</h3>

@@ -26,6 +26,8 @@ import {
   gainOf,
   isCombatPotion,
   isCooldownCpm,
+  isRaidUtility,
+  isUtilitySpell,
   phaseSpans,
   reviewDefensives,
   reviewTimeline,
@@ -464,6 +466,27 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     durationMs,
     data.deaths.filter((d) => d.targetID === actorId).map((d) => d.timestamp - fight.startTime),
   );
+  const top = bench?.top ?? null;
+  const topOpener = (top?.timeline ?? []).filter(([t]) => t <= OPENER_MS);
+
+  const abilities: PlayerAnalysis["abilities"] = {};
+  for (const a of report.abilities) abilities[a.gameID] = { name: a.name, icon: a.icon };
+  // Benchmark abilities (and #1's opener casts) you never used aren't in your report; look their names up from the crawler's data.
+  const missing = [
+    ...new Set([
+      ...(bench ? [...Object.keys(bench.benchmark.cpm), ...Object.keys(bench.benchmark.buffUptime)].map(Number) : []),
+      ...topOpener.map(([, id]) => id),
+    ]),
+  ].filter((id) => !abilities[id]);
+  if (missing.length) {
+    const rows = await getDb().select().from(abilitiesTable).where(inArray(abilitiesTable.id, missing));
+    for (const r of rows) abilities[r.id] = { name: r.name, icon: r.icon ?? "" };
+  }
+  // Movement, defensives, raid utility and consumables never become DPS findings; Bloodlust isn't shown at all.
+  const named = Object.entries(abilities).map(([id, a]) => [Number(id), a] as const);
+  const utilityIds = new Set(named.filter(([, a]) => isUtilitySpell(a.name, a.icon)).map(([id]) => id));
+  const hiddenIds = new Set(named.filter(([, a]) => isRaidUtility(a.name)).map(([id]) => id));
+
   const comparison = bench
     ? compareToBenchmark(
         {
@@ -478,25 +501,9 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
           targetShare: shares(perf.targetDamage, perf.totalDamage),
         },
         bench.benchmark,
+        { utilityIds, hiddenIds },
       )
     : null;
-
-  const top = bench?.top ?? null;
-  const topOpener = (top?.timeline ?? []).filter(([t]) => t <= OPENER_MS);
-
-  const abilities: PlayerAnalysis["abilities"] = {};
-  for (const a of report.abilities) abilities[a.gameID] = { name: a.name, icon: a.icon };
-  // Benchmark abilities (and #1's opener casts) you never used aren't in your report; look their names up from the crawler's data.
-  const missing = [
-    ...new Set([
-      ...(comparison ? [...comparison.abilities, ...comparison.buffs].map((a) => a.abilityId) : []),
-      ...topOpener.map(([, id]) => id),
-    ]),
-  ].filter((id) => !abilities[id]);
-  if (missing.length) {
-    const rows = await getDb().select().from(abilitiesTable).where(inArray(abilitiesTable.id, missing));
-    for (const r of rows) abilities[r.id] = { name: r.name, icon: r.icon ?? "" };
-  }
 
   // Players use different combat potions; compare when the first one was drunk, whichever it was.
   const potionIds = [...new Set([...perf.casts, ...topOpener].map(([, id]) => id))].filter(
@@ -516,7 +523,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     // medians, only those top players press in the first minute (not e.g. a blink used whenever).
     cooldownIds: [
       ...(comparison?.abilities ?? [])
-        .filter((a) => isCooldownCpm(a.benchmark))
+        .filter((a) => isCooldownCpm(a.benchmark) && !utilityIds.has(a.abilityId))
         .filter((a) => {
           const first = bench?.benchmark.timeline?.firstUse[a.abilityId];
           return !bench?.benchmark.timeline || (first != null && first.median <= 60_000);
@@ -528,7 +535,11 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     benchmark: bench?.benchmark.timeline ?? null,
   });
   if (comparison && timeline.findings.length) {
-    comparison.findings = [...comparison.findings, ...timeline.findings].sort((x, y) => (gainOf(y) ?? -1) - (gainOf(x) ?? -1));
+    // Idle stretches and low casting time are the same problem; keep the one that says when it happened.
+    const idle = timeline.findings.some((f) => f.kind === "idle-time");
+    comparison.findings = [...comparison.findings.filter((f) => !(idle && f.kind === "low-active-time")), ...timeline.findings].sort(
+      (x, y) => (gainOf(y) ?? -1) - (gainOf(x) ?? -1),
+    );
   }
 
   // Defensives and consumables around each death. Names come from the report plus any benchmark lookups above.

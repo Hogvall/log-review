@@ -266,12 +266,12 @@ export interface TimelineReview {
   /** True when rows are the boss's phases, false for one-minute windows. */
   byPhase: boolean;
   phases: PhaseActivity[];
-  /** The player's idle stretches, in order. */
-  gaps: Gap[];
+  /** The player's idle stretches, in order, with the phase each mostly falls in. */
+  gaps: (Gap & { phase: string | null })[];
   idleMs: number;
-  /** The #1 player's idle time, scaled to your time alive so different kill lengths compare. */
+  /** Idle time expected from the #1 player's idle share in each phase, over your time in that phase. */
   topIdleMs: number | null;
-  /** Top players' median idle share, as time over your time alive. */
+  /** Idle time expected from top players' median idle share in each phase, over your time in that phase. */
   medianIdleMs: number | null;
   /** Players in the timeline benchmark (0 when comparing with #1 only). */
   sampleSize: number;
@@ -286,6 +286,14 @@ const OPENER_USED_BY = 0.5;
 /** Extra idle time over top players worth a finding: at least this long and this share of your time alive. */
 const IDLE_EXTRA_MS = 10_000;
 const IDLE_EXTRA_SHARE = 0.04;
+
+/** The phase a stretch mostly falls in (a gap often starts just before a phase change). */
+function dominantPhase(g: Gap, spans: PhaseSpan[]): string | null {
+  const totals = new Map<string, number>();
+  for (const s of spans) totals.set(s.name, (totals.get(s.name) ?? 0) + overlap(g, s.startMs, s.endMs));
+  const best = [...totals].sort((a, b) => b[1] - a[1])[0];
+  return best && best[1] > 0 ? best[0] : null;
+}
 
 const firstUse = (casts: CastMark[], ids: number[]) => casts.find(([, a]) => ids.includes(a))?.[0] ?? null;
 
@@ -315,8 +323,7 @@ export function reviewTimeline(input: TimelineInput): TimelineReview {
   const idleMs = gaps.reduce((s, g) => s + g.endMs - g.startMs, 0);
   const topGaps = topSorted && top ? castGaps(topSorted, top.durationMs) : null;
   const topIdleRaw = topGaps?.reduce((s, g) => s + g.endMs - g.startMs, 0) ?? null;
-  const topIdleMs = topIdleRaw != null && top ? (topIdleRaw * aliveMs) / top.durationMs : null;
-  const medianIdleMs = bench ? bench.idleShare.median * aliveMs : null;
+  const topIdleShare = topIdleRaw != null && top ? topIdleRaw / top.durationMs : null;
 
   // Phases when the boss has them (both fights are the same boss); otherwise minute windows for both.
   const byPhase = input.phases.length > 0;
@@ -338,6 +345,15 @@ export function reviewTimeline(input: TimelineInput): TimelineReview {
       median: bench?.phases[s.id] ?? null,
     });
   }
+
+  // Expected idle time, phase by phase: almost all idle time is in intermissions, so a pull with more
+  // intermission than the reference kill should expect more of it. Phases without a reference use the
+  // reference's whole-fight share.
+  const expectedIdle = (share: (p: PhaseActivity) => number | null, whole: number) =>
+    phases.reduce((sum, p) => sum + (p.you ? p.you.durationMs * (share(p) ?? whole) : 0), 0);
+  const medianIdleMs = bench ? expectedIdle((p) => p.median?.idleShare.median ?? null, bench.idleShare.median) : null;
+  const topIdleMs =
+    topIdleShare != null ? expectedIdle((p) => (p.top && p.top.durationMs ? activityIdleShare(p.top) : null), topIdleShare) : null;
 
   const findings: TimelineFinding[] = [];
   for (const f of firstUses) {
@@ -380,7 +396,7 @@ export function reviewTimeline(input: TimelineInput): TimelineReview {
     },
     byPhase,
     phases,
-    gaps,
+    gaps: gaps.map((g) => ({ ...g, phase: byPhase ? dominantPhase(g, spans) : null })),
     idleMs,
     topIdleMs,
     medianIdleMs,

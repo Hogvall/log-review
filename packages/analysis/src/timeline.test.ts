@@ -140,7 +140,7 @@ describe("reviewTimeline", () => {
     expect(r.phases.map((p) => p.name)).toEqual(["Stage One", "Intermission"]);
     expect(r.phases[0]!.you).toMatchObject({ durationMs: 170_000, idleMs: 21_000 });
     expect(r.phases[0]!.top).toMatchObject({ durationMs: 170_000, idleMs: 0 });
-    expect(r.gaps).toEqual([{ startMs: 39_000, endMs: 60_000 }]);
+    expect(r.gaps).toEqual([{ startMs: 39_000, endMs: 60_000, phase: "Stage One" }]);
 
     const idle = r.findings.find((f) => f.kind === "idle-time");
     expect(idle).toMatchObject({ playerMs: 21_000, topMs: 0 });
@@ -165,6 +165,36 @@ describe("reviewTimeline", () => {
     expect(r.topIdleMs).toBeNull();
     expect(r.findings).toEqual([]);
     expect(minuteSpans(150_000).at(-1)).toMatchObject({ startMs: 120_000, endMs: 150_000 });
+  });
+
+  it("expects idle time phase by phase, so a pull with more intermission isn't blamed for it", () => {
+    // #1's kill: 100s of stage one fully active, then a 20s intermission half idle (stunned).
+    const refPhases = [
+      { id: 1, name: "Stage One", intermission: false, startMs: 0, endMs: 100_000 },
+      { id: 2, name: "Intermission", intermission: true, startMs: 100_000, endMs: 120_000 },
+    ];
+    const refCasts = [...steady(0, 100_000, 1000), ...steady(110_000, 120_000, 1000)];
+    // Your wipe: same stage one, but 60s of intermission, half of it idle like #1's.
+    const yourPhases = [
+      { id: 1, name: "Stage One", intermission: false, startMs: 0, endMs: 100_000 },
+      { id: 2, name: "Intermission", intermission: true, startMs: 100_000, endMs: 160_000 },
+    ];
+    const yourCasts = [...steady(0, 100_000, 1000), ...steady(130_000, 160_000, 1000)];
+    const r = reviewTimeline({
+      casts: yourCasts,
+      precasts: [],
+      durationMs: 160_000,
+      aliveMs: 160_000,
+      amount: 100_000,
+      phases: yourPhases,
+      top: { casts: refCasts, durationMs: 120_000, phases: refPhases },
+      cooldownIds: [],
+    });
+    expect(r.idleMs).toBe(31_000);
+    // Scaling #1's whole-fight share (11s of 120s) would expect ~14.7s; per phase it's 1s + 30s.
+    expect(r.topIdleMs).toBeCloseTo(31_000, -2);
+    expect(r.findings).toEqual([]);
+    expect(r.gaps).toEqual([{ startMs: 99_000, endMs: 130_000, phase: "Intermission" }]);
   });
 
   it("doesn't count phases the player was dead for", () => {
@@ -255,5 +285,50 @@ describe("timelineBenchmark", () => {
 
     const idle = reviewTimeline({ ...base, casts: [...steady(0, 50_000, 1000), ...steady(80_000, 200_000, 1000), [3000, COMBUSTION]] });
     expect(idle.findings).toMatchObject([{ kind: "idle-time", playerMs: 31_000, topMs: 0, basis: "median" }]);
+  });
+});
+
+describe("compareToBenchmark: utility and tiny gains", () => {
+  const RETREAT = 198793;
+  const LUST = 80353;
+  const s = (median: number) => ({ median, p25: median * 0.9, p75: median * 1.1, n: 15, usedBy: 1 });
+  const bench: SpecBenchmark = {
+    sampleSize: 15,
+    insufficient: false,
+    amount: s(240_000),
+    durationMs: s(337_000),
+    itemLevel: s(331),
+    activeTimePct: s(1),
+    cpm: { [RETREAT]: s(2.4), [POTION]: s(0.35), [LUST]: s(0.17), [PYRO]: s(29.1) },
+    buffUptime: {},
+    dtps: {},
+    targetShare: {},
+    deathRate: 0,
+  };
+  const player = {
+    amount: 170_000,
+    durationMs: 432_000,
+    aliveMs: 432_000,
+    itemLevel: 323,
+    activeTimeMs: 432_000,
+    // Vengeful Retreat does a little damage, so it gets a (tiny) estimate.
+    casts: { [RETREAT]: 14, [POTION]: 2, [PYRO]: 160 },
+    damageByAbility: { [RETREAT]: 400_000, [PYRO]: 25_000_000 },
+    buffUptime: {},
+    targetShare: {},
+  };
+
+  it("keeps movement, potions and tiny gains out of the findings, and hides raid utility", () => {
+    const c = compareToBenchmark(player, bench, { utilityIds: new Set([RETREAT, POTION, LUST]), hiddenIds: new Set([LUST]) });
+    expect(c.abilities.map((a) => a.abilityId).sort()).toEqual([PYRO, RETREAT, POTION].sort());
+    expect(c.abilities.find((a) => a.abilityId === RETREAT)!.status).toBe("low");
+    expect(c.findings.map((f) => f.kind === "low-casts" && f.ability.abilityId)).toEqual([PYRO]);
+  });
+
+  it("drops a non-utility finding worth under 0.5% of DPS", () => {
+    const c = compareToBenchmark(player, bench);
+    const ids = c.findings.flatMap((f) => (f.kind === "low-casts" ? [f.ability.abilityId] : []));
+    expect(ids).toContain(PYRO);
+    expect(ids).not.toContain(RETREAT); // ~+20 dps
   });
 });

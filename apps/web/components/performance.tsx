@@ -148,8 +148,22 @@ export function RangeLegend() {
   );
 }
 
+/**
+ * One row per spell name: some spells log under two IDs (e.g. Alter Time and its return), which would
+ * otherwise show as duplicate rows. Keeps the ID top players use most.
+ */
+function onePerName<T extends { abilityId: number; benchmark: { median: number } }>(rows: T[], abilities: AbilityInfo): T[] {
+  const best = new Map<string, T>();
+  for (const r of rows) {
+    const key = abilities[r.abilityId]?.name ?? `#${r.abilityId}`;
+    const seen = best.get(key);
+    if (!seen || r.benchmark.median > seen.benchmark.median) best.set(key, r);
+  }
+  return rows.filter((r) => best.get(abilities[r.abilityId]?.name ?? `#${r.abilityId}`) === r);
+}
+
 export function RotationTable({ comparison, abilities }: { comparison: Comparison; abilities: AbilityInfo }) {
-  const rows: AbilityComparison[] = comparison.abilities;
+  const rows: AbilityComparison[] = onePerName(comparison.abilities, abilities);
   return (
     <div>
       <RangeLegend />
@@ -206,8 +220,8 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
 
 export function BuffTable({ comparison, abilities }: { comparison: Comparison; abilities: AbilityInfo }) {
   const groups = [
-    { title: "Your cooldowns and buffs", rows: comparison.buffs.filter((b) => b.selfCast) },
-    { title: "Procs and buffs from others", rows: comparison.buffs.filter((b) => !b.selfCast), note: "These depend on luck and your group, so they're shown for context only." },
+    { title: "Your cooldowns and buffs", rows: onePerName(comparison.buffs.filter((b) => b.selfCast), abilities) },
+    { title: "Procs and buffs from others", rows: onePerName(comparison.buffs.filter((b) => !b.selfCast), abilities), note: "These depend on luck and your group, so they're shown for context only." },
   ];
   return (
     <div className="space-y-6">

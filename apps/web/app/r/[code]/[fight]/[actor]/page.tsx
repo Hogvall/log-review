@@ -97,8 +97,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                   : [],
               ),
             )}
-          />
-          <div className="mt-4">
+          >
             <RaidDeathsTable
               deaths={analysis.raidDeaths}
               playerId={player.id}
@@ -108,7 +107,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
               kill={!!fight.kill}
               wipe={analysis.wipe}
             />
-          </div>
+          </DeathTimeline>
           <div className="mt-4">
             {relevantDeaths.length === 0 ? (
               <p className="border-t border-line py-3 text-sm text-heal">You didn't die.</p>

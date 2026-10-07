@@ -11,6 +11,7 @@ import {
   minuteSpans,
   phaseSpans,
   reviewTimeline,
+  similarLengthAmount,
   timelineBenchmark,
 } from "./index";
 
@@ -354,5 +355,70 @@ describe("compareToBenchmark: executes", () => {
     expect(c.abilities[0]).toMatchObject({ role: "execute", status: "execute", estDpsGain: null });
     expect(c.findings).toEqual([]);
     expect(isExecuteSpell("Kill Shot")).toBe(true);
+  });
+});
+
+describe("fight length (RAI-1)", () => {
+  const VOLLEY = 260243;
+  const s = (median: number, p25 = median * 0.9, p75 = median * 1.1) => ({ median, p25, p75, n: 15, usedBy: 1 });
+  const phases: { id: number; name: string; intermission: boolean; startMs: number; endMs: number }[] = [];
+  // Top players press Volley at ~17s and then every ~45s; kills last 5:00–6:00.
+  const members = [300_000, 315_000, 330_000, 345_000, 360_000].map((durationMs, i) => {
+    const casts: CastMark[] = [];
+    for (let t = 17_000 + i * 500; t < durationMs; t += 45_000) casts.push([t, VOLLEY]);
+    return { casts, precasts: [], durationMs, phases };
+  });
+  const timeline = timelineBenchmark(members, [VOLLEY], new Set())!;
+
+  it("learns each cooldown's pace from top players' timelines", () => {
+    expect(timeline.firstUse[VOLLEY]!.median).toBe(18_000);
+    expect(timeline.cadence![VOLLEY]!.median).toBe(45_000);
+  });
+
+  const bench: SpecBenchmark = {
+    sampleSize: 15,
+    insufficient: false,
+    amount: s(270_000),
+    durationMs: s(330_000),
+    itemLevel: s(328),
+    activeTimePct: s(1),
+    cpm: { [VOLLEY]: s(1.3) },
+    buffUptime: {},
+    dtps: {},
+    targetShare: {},
+    deathRate: 0,
+    timeline,
+    // Longer kills, lower DPS: the closest kill lengths to a 7:12 pull are the slow ones.
+    amountPoints: [290, 285, 282, 280, 276, 272, 270, 268, 262, 258, 255, 250, 248, 245, 240].map((k, i) => ({ amount: k * 1000, durationMs: 290_000 + i * 6000 })),
+  };
+  const player = (casts: number) => ({
+    amount: 193_700,
+    durationMs: 432_000,
+    aliveMs: 420_000,
+    itemLevel: 328,
+    activeTimeMs: 400_000,
+    casts: { [VOLLEY]: casts },
+    damageByAbility: { [VOLLEY]: casts * 1_500_000 },
+    buffUptime: {},
+    targetShare: {},
+  });
+
+  it("expects as many cooldown casts as top players' pace fits in your time alive", () => {
+    // 0:18, then every 45s until 7:00: 9 casts. Per minute, 5 casts in 7:00 (0.71/min) looked 45% low;
+    // by count it's 4 short.
+    const low = compareToBenchmark(player(5), bench).abilities[0]!;
+    expect(low.expected).toEqual({ casts: 9, firstMs: 18_000, everyMs: 45_000 });
+    expect(low.status).toBe("low");
+    expect(low.estDpsGain).toBeCloseTo((4 * 1_500_000) / 432, 0);
+
+    // 8 of 9 is one short and under 15%: fine, even though 8 in 7:00 is "only" 1.14/min vs 1.3/min.
+    expect(compareToBenchmark(player(8), bench).abilities[0]!.status).toBe("ok");
+  });
+
+  it("compares DPS with the top players whose kills were closest in length", () => {
+    const c = compareToBenchmark(player(9), bench);
+    expect(c.amount!.similar).toEqual({ median: 248_000, n: 5, minMs: 350_000, maxMs: 374_000 });
+    expect(c.amount!.ratio).toBeCloseTo(193_700 / 248_000);
+    expect(similarLengthAmount(bench.amountPoints!.slice(0, 5), 432_000)).toBeNull();
   });
 });

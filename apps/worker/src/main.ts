@@ -34,7 +34,11 @@ while (!stopping) {
   let job: Awaited<ReturnType<typeof claimJob>>;
   try {
     job = await claimJob(db);
-    if (!job) await finalizeSnapshots(db, config.difficulties);
+    if (!job) {
+      // Idle: re-aggregate anything new code (BENCHMARK_VERSION) or late data made stale, then finish snapshots.
+      await aggregateReadyGroups(db, config.difficulties);
+      await finalizeSnapshots(db, config.difficulties);
+    }
   } catch (err) {
     // e.g. the database is restarting; keep the worker alive and try again.
     console.error("queue error:", err instanceof Error ? err.message : err);

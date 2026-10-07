@@ -18,8 +18,8 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
     const fromHash = () => {
       const id = window.location.hash.slice(1);
       if (tabs.some((t) => t.id === id)) setActive(id);
-      // Links to a specific death (#death-3) live in the deaths tab.
-      else if (id.startsWith("death-")) setActive("deaths");
+      // Links to a specific death (#death-3) or the raid deaths list live in the deaths tab.
+      else if (id.startsWith("death-") || id === "raid-deaths") setActive("deaths");
     };
     fromHash();
     window.addEventListener("hashchange", fromHash);

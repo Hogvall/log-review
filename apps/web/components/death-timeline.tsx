@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { ClassifiedDeath, WipeEvent } from "@log-review/analysis";
 import { classColor, fightTime } from "@/lib/format";
 
@@ -18,13 +18,24 @@ export interface TimelineProps {
 const toggleClass = "border border-line px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.07em] text-muted hover:border-muted hover:text-fg";
 
 /**
- * Raid deaths over the pull. Compact by default (one strip); expanded, it shows one row per player who
- * died, with each death labeled, so it's clear who died when and to what.
+ * Raid deaths over the pull. Minimal by default: one strip with your deaths labeled. The button under it
+ * expands to everyone: one row per player who died, plus `children` (the full raid deaths table).
  */
-export function DeathTimeline(props: TimelineProps) {
+export function DeathTimeline({ children, ...props }: TimelineProps & { children?: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const [zoomWipe, setZoomWipe] = useState(false);
-  const { wipe, durationMs } = props;
+  const { wipe, durationMs, deaths, playerId } = props;
+  const others = deaths.filter((d) => d.targetID !== playerId).length;
+
+  // Links to the full list ("Who died first") open it.
+  useEffect(() => {
+    const open = () => {
+      if (window.location.hash === "#raid-deaths") setExpanded(true);
+    };
+    open();
+    window.addEventListener("hashchange", open);
+    return () => window.removeEventListener("hashchange", open);
+  }, []);
 
   // Zooming shows the seconds around the wipe, where deaths pile up.
   const range =
@@ -33,18 +44,19 @@ export function DeathTimeline(props: TimelineProps) {
       : { start: 0, end: durationMs };
 
   return (
-    <div>
-      <div className="mb-1 flex flex-wrap items-center justify-end gap-2">
+    <div id="raid-deaths" className="scroll-mt-6">
+      {expanded ? <Lanes {...props} range={range} /> : <Strip {...props} />}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => setExpanded(!expanded)} className={toggleClass} aria-expanded={expanded}>
+          {expanded ? "Hide other players" : `Show everyone who died (${others} other ${others === 1 ? "death" : "deaths"})`}
+        </button>
         {expanded && wipe && (
           <button type="button" onClick={() => setZoomWipe(!zoomWipe)} className={toggleClass} aria-pressed={zoomWipe}>
             {zoomWipe ? "Whole pull" : "Zoom to wipe"}
           </button>
         )}
-        <button type="button" onClick={() => setExpanded(!expanded)} className={toggleClass} aria-expanded={expanded}>
-          {expanded ? "Collapse timeline" : "Expand timeline"}
-        </button>
       </div>
-      {expanded ? <Lanes {...props} range={range} /> : <Strip {...props} />}
+      {expanded && children && <div className="mt-4">{children}</div>}
     </div>
   );
 }

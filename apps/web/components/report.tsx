@@ -289,7 +289,7 @@ export function RaidDeathsTable({
     </thead>
   );
   return (
-    <div id="raid-deaths" className="scroll-mt-6 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
       <table className="w-full min-w-[480px] text-sm">
         {head}
         <tbody>{rows}</tbody>

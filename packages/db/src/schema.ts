@@ -90,6 +90,11 @@ export const fights = pgTable(
     hasDamageTaken: boolean("has_damage_taken").notNull().default(false),
     /** Boss phases as fight-relative PhaseSpan[] ([] if the boss has none); null until fetched. */
     phases: jsonb("phases"),
+    /**
+     * ExecuteStarts: when a boss first reached each execute threshold. null = not checked yet; {} = checked,
+     * no ranked player cast an execute so the health graph wasn't fetched.
+     */
+    executeStarts: jsonb("execute_starts"),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.reportCode, t.fightId] })],

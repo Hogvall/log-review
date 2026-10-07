@@ -5,6 +5,9 @@ import {
   type PhaseSpan,
   type PlayerMetrics,
   encounterAvoidability,
+  type ExecuteStarts,
+  type ExecuteThreshold,
+  executeThresholdOf,
   isCombatPotion,
   roleOf,
   specBenchmark,
@@ -94,6 +97,7 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
       timeline: playerMetrics.timeline,
       precasts: playerMetrics.precasts,
       phases: fights.phases,
+      executeStarts: fights.executeStarts,
     })
     .from(rankingEntries)
     .innerJoin(
@@ -117,9 +121,15 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
   // Combat potions differ between players; find them by name so their first use is benchmarked as one.
   const castIds = [...new Set(rows.flatMap((r) => ((r.timeline as CastMark[] | null) ?? []).map(([, id]) => id)))];
   const potionIds = new Set<number>();
+  // Execute spells, judged per minute of the time bosses spent below their threshold.
+  const executeIds = new Map<number, ExecuteThreshold>();
   for (let i = 0; i < castIds.length; i += 1000) {
     const named = await db.select().from(abilities).where(inArray(abilities.id, castIds.slice(i, i + 1000)));
-    for (const a of named) if (isCombatPotion(a.name, a.icon ?? "")) potionIds.add(a.id);
+    for (const a of named) {
+      if (isCombatPotion(a.name, a.icon ?? "")) potionIds.add(a.id);
+      const threshold = executeThresholdOf(a.name);
+      if (threshold) executeIds.set(a.id, threshold);
+    }
   }
 
   const cohorts = new Map<string, CohortMember[]>();
@@ -139,6 +149,7 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
               precasts: row.precasts as number[],
               durationMs: metrics.durationMs,
               phases: row.phases as PhaseSpan[],
+              executeStarts: row.executeStarts as Partial<ExecuteStarts> | null,
             }
           : null,
     });
@@ -171,7 +182,7 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
     if (cohorts.size) {
       await tx.insert(benchmarks).values(
         [...cohorts].map(([specKey, cohort]) => {
-          const data = specBenchmark(cohort, undefined, potionIds);
+          const data = specBenchmark(cohort, undefined, potionIds, executeIds);
           return { snapshotId, encounterId, difficulty, specKey, sampleSize: data.sampleSize, insufficient: data.insufficient, data };
         }),
       );

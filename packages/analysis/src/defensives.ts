@@ -275,8 +275,20 @@ export function isUtilitySpell(name: string, icon = ""): boolean {
  * can cast them depends on how long the boss spends there. A wipe before the execute phase, or a longer
  * fight, says nothing about the rotation.
  */
-const EXECUTES = new Set([
-  "Kill Shot", "Execute", "Condemn", "Shadow Word: Death", "Soul Reaper", "Touch of Death", "Hammer of Wrath", "Black Arrow",
-]);
+const EXECUTES: Record<string, ExecuteThreshold> = {
+  "Kill Shot": 20,
+  Execute: 20,
+  Condemn: 20,
+  "Shadow Word: Death": 20,
+  "Soul Reaper": 35,
+  "Touch of Death": 15,
+  "Hammer of Wrath": 20,
+  "Black Arrow": 20,
+};
 
-export const isExecuteSpell = (name: string) => EXECUTES.has(name);
+/** Boss health (%) below which execute spells work. Talents can raise some (e.g. Massacre); these are the base values. */
+export const EXECUTE_THRESHOLDS = [15, 20, 35] as const;
+export type ExecuteThreshold = (typeof EXECUTE_THRESHOLDS)[number];
+
+export const isExecuteSpell = (name: string) => name in EXECUTES;
+export const executeThresholdOf = (name: string): ExecuteThreshold | null => EXECUTES[name] ?? null;

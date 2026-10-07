@@ -1,3 +1,5 @@
+import type { ExecuteThreshold } from "./defensives";
+import { type ExecuteStarts, executeRate } from "./execute";
 import { type KeyedSummary, type Summary, summarize } from "./stats";
 
 /**
@@ -146,7 +148,12 @@ export interface TimelineMember {
   durationMs: number;
   /** Boss phases in their fight ([] if the boss has none). */
   phases: PhaseSpan[];
+  /** When bosses reached each execute threshold in their fight; null/missing when unknown. */
+  executeStarts?: Partial<ExecuteStarts> | null;
 }
+
+/** An execute window shorter than this says too little about how often someone casts in it. */
+export const MIN_EXECUTE_WINDOW_MS = 20_000;
 
 /** What top players of a spec do over time: medians of first uses, precasts and activity per phase. */
 export interface TimelineBenchmark {
@@ -158,6 +165,11 @@ export interface TimelineBenchmark {
    * ID). With firstUse it says how many uses fit in a fight of any length.
    */
   cadence?: Record<string, Summary>;
+  /**
+   * Execute spells (keyed by ability ID): casts per minute while the boss was at or below the spell's
+   * threshold, among top players whose fight had a window of at least MIN_EXECUTE_WINDOW_MS.
+   */
+  execute?: Record<string, { thresholdPct: ExecuteThreshold; perMin: Summary }>;
   /** Share of top players with a precast, and the most common precast spell. */
   precast: { share: number; abilityId: number | null };
   /** Per phase ID (minute index for bosses without phases): casts per minute and idle share. */
@@ -169,7 +181,13 @@ export interface TimelineBenchmark {
 /** Below this many players with timelines, a timeline benchmark isn't worth comparing against. */
 export const MIN_TIMELINE_SAMPLE = 3;
 
-export function timelineBenchmark(members: TimelineMember[], cooldownIds: number[], potionIds: Set<number>): TimelineBenchmark | null {
+export function timelineBenchmark(
+  members: TimelineMember[],
+  cooldownIds: number[],
+  potionIds: Set<number>,
+  /** Execute spell ID → its health threshold. */
+  executeIds: Map<number, ExecuteThreshold> = new Map(),
+): TimelineBenchmark | null {
   if (members.length < MIN_TIMELINE_SAMPLE) return null;
   const sortedMembers = members.map((m) => ({ ...m, casts: [...m.casts].sort((a, b) => a[0] - b[0]) }));
 
@@ -192,6 +210,17 @@ export function timelineBenchmark(members: TimelineMember[], cooldownIds: number
       return times.length >= 2 ? [(times.at(-1)! - times[0]!) / (times.length - 1)] : [];
     });
     if (intervals.length >= MIN_TIMELINE_SAMPLE) cadence[id] = summarize(intervals);
+  }
+
+  const execute: NonNullable<TimelineBenchmark["execute"]> = {};
+  for (const [id, thresholdPct] of executeIds) {
+    const rates = sortedMembers.flatMap((m) => {
+      const start = m.executeStarts?.[thresholdPct];
+      if (start == null || m.durationMs - start < MIN_EXECUTE_WINDOW_MS) return [];
+      const times = m.casts.filter(([, a]) => a === id).map(([t]) => t);
+      return [executeRate(times, start, m.durationMs).perMin];
+    });
+    if (rates.length >= MIN_TIMELINE_SAMPLE) execute[id] = { thresholdPct, perMin: summarize(rates) };
   }
 
   const precastCounts = new Map<number, number>();
@@ -219,6 +248,7 @@ export function timelineBenchmark(members: TimelineMember[], cooldownIds: number
     sampleSize: members.length,
     firstUse,
     cadence,
+    execute,
     precast: {
       share: members.filter((m) => m.precasts.length).length / members.length,
       abilityId: commonPrecast?.[0] ?? null,

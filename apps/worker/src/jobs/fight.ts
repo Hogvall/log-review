@@ -4,13 +4,15 @@ import {
   type DamageDoneTableEntry,
   type PlayerMetrics,
   buffUptimes,
+  executeStarts,
   extractFightMetrics,
   findPrecasts,
+  isExecuteSpell,
   phaseSpans,
 } from "@log-review/analysis";
 import { type Db, abilities, fights, playerMetrics, rankingEntries } from "@log-review/db";
-import { ENEMY_SOURCES, type WclQuerier, getFightEvents, getFightMeta, getFightTable } from "@log-review/wcl";
-import { and, count, eq } from "drizzle-orm";
+import { ENEMY_SOURCES, type WclQuerier, getFightEvents, getFightMeta, getFightTable, getHealthGraph } from "@log-review/wcl";
+import { and, count, eq, inArray } from "drizzle-orm";
 
 export interface FightJobPayload {
   reportCode: string;
@@ -112,6 +114,8 @@ export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p
     }
   }
 
+  await ensureExecuteStarts(db, wcl, p, durationMs, snapshotId);
+
   // Ability and buff names come free with the per-player tables; the site uses them for benchmark rows.
   const unique = new Map(names.filter((n) => n.guid > 0 && n.name).map((n) => [n.guid, n]));
   if (unique.size) {
@@ -122,13 +126,17 @@ export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p
   }
 }
 
-/** Stores the fight's boss phases and the report's ability names (cast events only carry IDs): 1 query, once. */
+/**
+ * Stores the fight's boss phases, when bosses reached execute range, and the report's ability names (cast
+ * events only carry IDs): 1 query, once.
+ */
 async function ensurePhases(db: Db, wcl: WclQuerier, p: FightJobPayload, durationMs: number) {
   const where = and(eq(fights.reportCode, p.reportCode), eq(fights.fightId, p.fightId));
   const [row] = await db.select({ phases: fights.phases }).from(fights).where(where).limit(1);
   if (!row || row.phases) return;
   const meta = await getFightMeta(wcl, p.reportCode, p.fightId);
   const phases = meta ? phaseSpans(meta.phaseTransitions, meta.startTime, durationMs, meta.phases) : [];
+  const starts = meta ? executeStarts(meta.health, p.fightStartTime, durationMs) : {};
   const names = (meta?.abilities ?? []).filter((a) => a.gameID > 0 && a.name);
   for (let i = 0; i < names.length; i += 500) {
     await db
@@ -136,7 +144,42 @@ async function ensurePhases(db: Db, wcl: WclQuerier, p: FightJobPayload, duratio
       .values(names.slice(i, i + 500).map((a) => ({ id: a.gameID, name: a.name, icon: a.icon || null })))
       .onConflictDoNothing();
   }
-  await db.update(fights).set({ phases }).where(where);
+  await db.update(fights).set({ phases, executeStarts: starts }).where(where);
+}
+
+/**
+ * For fights downloaded before execute windows were stored: fetches the bosses' health (1 query) only when a
+ * ranked player in the fight cast an execute spell; otherwise marks the fight as checked ({}).
+ */
+async function ensureExecuteStarts(db: Db, wcl: WclQuerier, p: FightJobPayload, durationMs: number, snapshotId: number) {
+  const where = and(eq(fights.reportCode, p.reportCode), eq(fights.fightId, p.fightId));
+  const [row] = await db.select({ executeStarts: fights.executeStarts }).from(fights).where(where).limit(1);
+  if (!row) return;
+  const stored = row.executeStarts as Record<string, unknown> | null;
+  if (stored && Object.keys(stored).length) return;
+
+  const timelines = await db
+    .select({ timeline: playerMetrics.timeline })
+    .from(playerMetrics)
+    .innerJoin(
+      rankingEntries,
+      and(
+        eq(rankingEntries.reportCode, playerMetrics.reportCode),
+        eq(rankingEntries.fightId, playerMetrics.fightId),
+        eq(rankingEntries.name, playerMetrics.name),
+        eq(rankingEntries.specKey, playerMetrics.specKey),
+        eq(rankingEntries.snapshotId, snapshotId),
+      ),
+    )
+    .where(and(eq(playerMetrics.reportCode, p.reportCode), eq(playerMetrics.fightId, p.fightId)));
+  const castIds = [...new Set(timelines.flatMap((t) => ((t.timeline as CastMark[] | null) ?? []).map(([, id]) => id)))];
+  const named = castIds.length ? await db.select({ name: abilities.name }).from(abilities).where(inArray(abilities.id, castIds)) : [];
+  if (!named.some((a) => isExecuteSpell(a.name))) {
+    if (!stored) await db.update(fights).set({ executeStarts: {} }).where(where);
+    return;
+  }
+  const health = await getHealthGraph(wcl, p.reportCode, p.fightId);
+  await db.update(fights).set({ executeStarts: executeStarts(health, p.fightStartTime, durationMs) }).where(where);
 }
 
 /** Stores what we know about every player in the fight and returns its duration. */

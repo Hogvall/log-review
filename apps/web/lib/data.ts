@@ -4,6 +4,7 @@ import {
   type Comparison,
   type DamageTakenEvent,
   type DeathStory,
+  type ExecuteStarts,
   type DebuffEvent,
   type ConsumableCounts,
   type DefensiveReview,
@@ -26,6 +27,8 @@ import {
   gainOf,
   isCombatPotion,
   isCooldownCpm,
+  executeStarts,
+  executeThresholdOf,
   isExecuteSpell,
   isRaidUtility,
   isUtilitySpell,
@@ -53,6 +56,7 @@ import {
   type ReportOverview,
   getFightEvents,
   getFightTable,
+  getHealthGraph,
   getPlayerDetails,
   getReportOverview,
 } from "@log-review/wcl";
@@ -105,6 +109,11 @@ interface PerfData {
   targetDamage: Record<string, number>;
   totalDamage: number;
   buffUptime: Record<string, number>;
+  /**
+   * When a boss first reached each execute threshold, for judging execute spells. null when the player cast
+   * none (not fetched); undefined in rows cached before this existed (filled in on first view).
+   */
+  executeStarts?: Partial<ExecuteStarts> | null;
 }
 
 interface CachedPlayerData {
@@ -462,7 +471,18 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   );
 
   const durationMs = fight.endTime - fight.startTime;
-  const perf = data.perf!;
+  let perf = data.perf!;
+  if (perf.executeStarts === undefined) {
+    // Boss health over the pull (1 query, cached), only for players who cast an execute spell.
+    const names = new Map(report.abilities.map((a) => [a.gameID, a.name]));
+    const castsExecute = perf.casts.some(([, id]) => isExecuteSpell(names.get(id) ?? ""));
+    const starts = castsExecute ? executeStarts(await getHealthGraph(getWcl(), code, fight.id), fight.startTime, durationMs) : null;
+    perf = { ...perf, executeStarts: starts };
+    await getDb()
+      .update(playerFightCache)
+      .set({ data: { ...data, perf } })
+      .where(and(eq(playerFightCache.reportCode, code), eq(playerFightCache.fightId, fight.id), eq(playerFightCache.actorId, actorId)));
+  }
   // Healers are benchmarked by HPS, so their DPS isn't comparable.
   const amount = specKey && roleOf(specKey) !== "healer" ? perf.totalDamage / (durationMs / 1000) : null;
   const aliveMs = aliveTime(
@@ -489,7 +509,10 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   const named = Object.entries(abilities).map(([id, a]) => [Number(id), a] as const);
   const utilityIds = new Set(named.filter(([, a]) => isUtilitySpell(a.name, a.icon)).map(([id]) => id));
   const hiddenIds = new Set(named.filter(([, a]) => isRaidUtility(a.name)).map(([id]) => id));
-  const executeIds = new Set(named.filter(([, a]) => isExecuteSpell(a.name)).map(([id]) => id));
+  const executeIds = new Map(named.flatMap(([id, a]) => {
+    const threshold = executeThresholdOf(a.name);
+    return threshold ? [[id, threshold] as const] : [];
+  }));
 
   const comparison = bench
     ? compareToBenchmark(
@@ -503,6 +526,8 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
           damageByAbility: perf.damageByAbility,
           buffUptime: perf.buffUptime,
           targetShare: shares(perf.targetDamage, perf.totalDamage),
+          castTimes: perf.casts,
+          executeStarts: perf.executeStarts ?? null,
         },
         bench.benchmark,
         { utilityIds, hiddenIds, executeIds },

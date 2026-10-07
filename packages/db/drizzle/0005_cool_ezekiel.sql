@@ -1,0 +1,1 @@
+ALTER TABLE "fights" ADD COLUMN "execute_starts" jsonb;

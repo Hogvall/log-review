@@ -208,9 +208,31 @@ export interface FightMeta {
   phases: EncounterPhases["phases"];
   /** Every ability in the report, for names (cast events only carry IDs). */
   abilities: Ability[];
+  /** Each enemy's health over the fight (for execute windows). */
+  health: HealthGraphSeries[];
 }
 
-/** One fight's phase timings plus the report's ability names, in one query. */
+/** One enemy's health from WCL's Resources graph: [report time, health %] points. */
+export interface HealthGraphSeries {
+  name?: string;
+  /** "Boss" or "NPC". */
+  type?: string;
+  data?: [number, number][];
+}
+
+/** Health over time of every enemy in a fight: Resources graph, ability 1000 = hit points. */
+const HEALTH_GRAPH = `graph(fightIDs: $fightIDs, dataType: Resources, hostilityType: Enemies, abilityID: 1000)`;
+
+/** Health over a fight for every enemy, from WCL's Resources graph (1 query). */
+export async function getHealthGraph(client: WclQuerier, code: string, fightId: number): Promise<HealthGraphSeries[]> {
+  const data = await client.query<{ reportData: { report: { graph: { data?: { series?: HealthGraphSeries[] } } } | null } }>(
+    `query($code: String!, $fightIDs: [Int]!) { reportData { report(code: $code) { ${HEALTH_GRAPH} } } }`,
+    { code, fightIDs: [fightId] },
+  );
+  return data.reportData.report?.graph.data?.series ?? [];
+}
+
+/** One fight's phase timings, enemy health and the report's ability names, in one query. */
 export async function getFightMeta(client: WclQuerier, code: string, fightId: number): Promise<FightMeta | null> {
   const data = await client.query<{
     reportData: {
@@ -218,10 +240,12 @@ export async function getFightMeta(client: WclQuerier, code: string, fightId: nu
         fights: { encounterID: number; startTime: number; phaseTransitions: FightMeta["phaseTransitions"] }[];
         phases: EncounterPhases[] | null;
         masterData: { abilities: Ability[] };
+        graph: { data?: { series?: HealthGraphSeries[] } };
       } | null;
     };
   }>(
     `query($code: String!, $fightIDs: [Int]!) { reportData { report(code: $code) {
+      ${HEALTH_GRAPH}
       fights(fightIDs: $fightIDs) { encounterID startTime phaseTransitions { id startTime } }
       phases { encounterID phases { id name isIntermission } }
       masterData { abilities { gameID name icon } }
@@ -236,5 +260,6 @@ export async function getFightMeta(client: WclQuerier, code: string, fightId: nu
     phaseTransitions: fight.phaseTransitions,
     phases: report.phases?.find((p) => p.encounterID === fight.encounterID)?.phases ?? [],
     abilities: report.masterData.abilities,
+    health: report.graph.data?.series ?? [],
   };
 }

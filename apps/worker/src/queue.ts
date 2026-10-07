@@ -71,3 +71,32 @@ export async function failJob(db: Db, job: ClaimedJob, err: unknown) {
 export async function resetStaleJobs(db: Db) {
   await db.execute(sql`UPDATE jobs SET status = 'pending', updated_at = now() WHERE status = 'running'`);
 }
+
+/**
+ * Re-queues finished fight jobs of running snapshots whose ranked players are missing a cast timeline or
+ * whose fight is missing its phases (crawled before those were stored). The fight job only fetches what's
+ * missing, and the boss is re-aggregated once its jobs are done again. Returns how many were re-queued.
+ */
+export async function requeueMissingTimelines(db: Db, difficulties: number[]): Promise<number> {
+  const rows = await db.execute<{ id: string }>(sql`
+    UPDATE jobs j SET status = 'pending', attempts = 0, run_after = now(), updated_at = now()
+    WHERE j.kind = 'fight' AND j.status = 'done'
+      AND j.snapshot_id IN (SELECT id FROM snapshots WHERE status = 'running')
+      AND (j.payload->>'difficulty')::int IN ${difficulties.length ? difficulties : [-1]}
+      AND (
+        EXISTS (
+          SELECT 1 FROM fights f
+          WHERE f.report_code = j.payload->>'reportCode' AND f.fight_id = (j.payload->>'fightId')::int AND f.phases IS NULL
+        )
+        OR EXISTS (
+          SELECT 1 FROM ranking_entries r
+          JOIN player_metrics pm ON pm.report_code = r.report_code AND pm.fight_id = r.fight_id
+            AND pm.name = r.name AND pm.spec_key = r.spec_key
+          WHERE r.snapshot_id = j.snapshot_id AND r.report_code = j.payload->>'reportCode'
+            AND r.fight_id = (j.payload->>'fightId')::int AND (pm.timeline IS NULL OR pm.precasts IS NULL)
+        )
+      )
+    RETURNING j.id
+  `);
+  return rows.length;
+}

@@ -88,6 +88,8 @@ export const fights = pgTable(
     durationMs: integer("duration_ms").notNull(),
     /** Damage taken was downloaded for this fight (a sample per boss feeds avoidability). */
     hasDamageTaken: boolean("has_damage_taken").notNull().default(false),
+    /** Boss phases as fight-relative PhaseSpan[] ([] if the boss has none); null until fetched. */
+    phases: jsonb("phases"),
     fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.reportCode, t.fightId] })],
@@ -106,8 +108,10 @@ export const playerMetrics = pgTable(
     metrics: jsonb("metrics").notNull(),
     /** Aura ID → uptime share. Fetched only for ranked players (costs one query each). */
     buffUptime: jsonb("buff_uptime"),
-    /** [fightTimeMs, abilityId][] casts. Fetched only for each spec's #1 player. */
+    /** [fightTimeMs, abilityId][] casts. Fetched for ranked players (only #1s before timelines were stored for everyone). */
     timeline: jsonb("timeline"),
+    /** Ability IDs hardcast before the pull; fetched along with the timeline. */
+    precasts: jsonb("precasts"),
   },
   (t) => [
     primaryKey({ columns: [t.reportCode, t.fightId, t.actorId] }),
@@ -137,6 +141,20 @@ export const benchmarks = pgTable(
     data: jsonb("data").notNull(),
   },
   (t) => [primaryKey({ columns: [t.snapshotId, t.encounterId, t.difficulty, t.specKey] })],
+);
+
+/** When each boss and difficulty of a snapshot was last aggregated, so new data (e.g. a backfill) triggers a re-run. */
+export const aggregations = pgTable(
+  "aggregations",
+  {
+    snapshotId: integer("snapshot_id")
+      .notNull()
+      .references(() => snapshots.id, { onDelete: "cascade" }),
+    encounterId: integer("encounter_id").notNull(),
+    difficulty: integer("difficulty").notNull(),
+    aggregatedAt: timestamp("aggregated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.snapshotId, t.encounterId, t.difficulty] })],
 );
 
 /** Data-driven avoidability of each boss ability, from all non-tank players in the snapshot's fights. */

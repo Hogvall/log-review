@@ -221,8 +221,17 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
         <div className="space-y-6">
           {topPlayer ? (
             <p className="text-sm text-muted">
-              Compared with <span className="text-fg">{topPlayer.name}</span>, the #1 player of your spec on this boss. One kill can
-              differ in strategy, so read gaps as something to check rather than a rule.
+              {timeline.sampleSize ? (
+                <>
+                  Compared with the median of {timeline.sampleSize} top players of your spec, with{" "}
+                  <span className="text-fg">{topPlayer.name}</span> (#1) shown for reference.
+                </>
+              ) : (
+                <>
+                  Compared with <span className="text-fg">{topPlayer.name}</span>, the #1 player of your spec on this boss. One kill can
+                  differ in strategy, so read gaps as something to check rather than a rule.
+                </>
+              )}
             </p>
           ) : (
             <NoBenchmark />

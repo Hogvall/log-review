@@ -199,3 +199,42 @@ export async function getPlayerDetails(client: WclQuerier, code: string, fightId
   const details = data.reportData.report.playerDetails.data.playerDetails;
   return { tanks: details.tanks ?? [], healers: details.healers ?? [], dps: details.dps ?? [] };
 }
+
+export interface FightMeta {
+  /** Report-relative fight start. */
+  startTime: number;
+  phaseTransitions: { id: number; startTime: number }[] | null;
+  /** Phase names for this fight's boss. */
+  phases: EncounterPhases["phases"];
+  /** Every ability in the report, for names (cast events only carry IDs). */
+  abilities: Ability[];
+}
+
+/** One fight's phase timings plus the report's ability names, in one query. */
+export async function getFightMeta(client: WclQuerier, code: string, fightId: number): Promise<FightMeta | null> {
+  const data = await client.query<{
+    reportData: {
+      report: {
+        fights: { encounterID: number; startTime: number; phaseTransitions: FightMeta["phaseTransitions"] }[];
+        phases: EncounterPhases[] | null;
+        masterData: { abilities: Ability[] };
+      } | null;
+    };
+  }>(
+    `query($code: String!, $fightIDs: [Int]!) { reportData { report(code: $code) {
+      fights(fightIDs: $fightIDs) { encounterID startTime phaseTransitions { id startTime } }
+      phases { encounterID phases { id name isIntermission } }
+      masterData { abilities { gameID name icon } }
+    } } }`,
+    { code, fightIDs: [fightId] },
+  );
+  const report = data.reportData.report;
+  const fight = report?.fights[0];
+  if (!report || !fight) return null;
+  return {
+    startTime: fight.startTime,
+    phaseTransitions: fight.phaseTransitions,
+    phases: report.phases?.find((p) => p.encounterID === fight.encounterID)?.phases ?? [],
+    abilities: report.masterData.abilities,
+  };
+}

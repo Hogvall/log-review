@@ -269,3 +269,14 @@ export function isUtilitySpell(name: string, icon = ""): boolean {
     isManaPotion(name)
   );
 }
+
+/**
+ * Execute spells: usable mostly while the target is at low health (plus the odd proc), so how often you
+ * can cast them depends on how long the boss spends there. A wipe before the execute phase, or a longer
+ * fight, says nothing about the rotation.
+ */
+const EXECUTES = new Set([
+  "Kill Shot", "Execute", "Condemn", "Shadow Word: Death", "Soul Reaper", "Touch of Death", "Hammer of Wrath", "Black Arrow",
+]);
+
+export const isExecuteSpell = (name: string) => EXECUTES.has(name);

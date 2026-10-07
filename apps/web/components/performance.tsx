@@ -278,23 +278,23 @@ export function TargetTable({ comparison }: { comparison: Comparison }) {
   );
 }
 
-/** Your cooldown casts vs the #1 player's, on a shared time axis. */
+/** Your DPS cooldown casts vs the #1 player's, on a shared time axis. */
 export function CooldownTimeline({
-  comparison,
+  cooldownIds,
   abilities,
   playerCasts,
   playerDurationMs,
   top,
 }: {
-  comparison: Comparison;
+  /** DPS cooldowns only: defensive timing depends on the fight, not the rotation. */
+  cooldownIds: number[];
   abilities: AbilityInfo;
   playerCasts: [number, number][];
   playerDurationMs: number;
   top: { name: string; durationMs: number; timeline: [number, number][] };
 }) {
-  // Cooldowns: abilities top players cast at most ~2 times a minute.
-  const cooldowns = comparison.abilities.filter((a) => a.benchmark.median > 0 && a.benchmark.median <= 2).slice(0, 8);
-  if (!cooldowns.length) return <p className="text-sm text-muted">No major cooldowns found for this spec.</p>;
+  const cooldowns = cooldownIds.slice(0, 10).map((abilityId) => ({ abilityId }));
+  if (!cooldowns.length) return <p className="text-sm text-muted">No major DPS cooldowns found for this spec.</p>;
   const span = Math.max(playerDurationMs, top.durationMs);
   const at = (ms: number) => `${(ms / span) * 100}%`;
   const row = (casts: [number, number][], id: number, duration: number, tone: string) => (
@@ -311,7 +311,7 @@ export function CooldownTimeline({
     <div className="space-y-4">
       <p className="text-sm text-muted">
         Each mark is one cast. Compare your timing with <span className="text-fg">{top.name}</span>, the #1 player of your spec on this boss.
-        Gaps where you have no marks are cooldowns sitting unused.
+        Gaps where you have no marks are cooldowns sitting unused. Defensives aren't shown: when to use them depends on the fight.
       </p>
       {cooldowns.map((a) => (
         <div key={a.abilityId}>

@@ -60,6 +60,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
     benchmarkWeek,
     topPlayer,
     playerCasts,
+    cooldownIds,
   } = result;
   const durationMs = fight.endTime - fight.startTime;
   const pull = report.fights.filter((f) => f.encounterID === fight.encounterID && f.difficulty === fight.difficulty && f.id <= fight.id).length;
@@ -240,8 +241,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
           <PhaseActivityTable timeline={timeline} />
           {comparison && topPlayer && (
             <div>
-              <h3 className="mb-2 font-medium text-fg">Cooldowns over the fight</h3>
-              <CooldownTimeline comparison={comparison} abilities={abilities} playerCasts={playerCasts} playerDurationMs={durationMs} top={topPlayer} />
+              <h3 className="mb-2 font-medium text-fg">DPS cooldowns over the fight</h3>
+              <CooldownTimeline cooldownIds={cooldownIds} abilities={abilities} playerCasts={playerCasts} playerDurationMs={durationMs} top={topPlayer} />
             </div>
           )}
         </div>

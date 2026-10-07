@@ -29,6 +29,8 @@ import {
   isCooldownCpm,
   executeStarts,
   executeThresholdOf,
+  isAoeSpell,
+  hitsSeveralTargets,
   isExecuteSpell,
   isRaidUtility,
   isUtilitySpell,
@@ -114,6 +116,8 @@ interface PerfData {
    * none (not fetched); undefined in rows cached before this existed (filled in on first view).
    */
   executeStarts?: Partial<ExecuteStarts> | null;
+  /** Abilities that spread their damage over 3+ enemies this pull (AoE, even if not in the list). Missing in older rows. */
+  aoeIds?: number[];
 }
 
 interface CachedPlayerData {
@@ -224,6 +228,7 @@ async function fetchPerfData(code: string, fight: Fight, actorId: number): Promi
     for (const t of a.targets ?? []) targetDamage[t.name] = (targetDamage[t.name] ?? 0) + t.total;
   }
   return {
+    aoeIds: (damage.entries ?? []).filter((a) => hitsSeveralTargets(a.targets)).map((a) => a.guid),
     activeTimeMs: castsTable.entries.find((e) => e.id === actorId)?.activeTime ?? 0,
     casts: castEvents
       .filter((e) => e.type === "cast" && e.abilityGameID)
@@ -509,6 +514,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   const named = Object.entries(abilities).map(([id, a]) => [Number(id), a] as const);
   const utilityIds = new Set(named.filter(([, a]) => isUtilitySpell(a.name, a.icon)).map(([id]) => id));
   const hiddenIds = new Set(named.filter(([, a]) => isRaidUtility(a.name)).map(([id]) => id));
+  const aoeIds = new Set([...named.filter(([, a]) => isAoeSpell(a.name)).map(([id]) => id), ...(perf.aoeIds ?? [])]);
   const executeIds = new Map(named.flatMap(([id, a]) => {
     const threshold = executeThresholdOf(a.name);
     return threshold ? [[id, threshold] as const] : [];
@@ -530,7 +536,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
           executeStarts: perf.executeStarts ?? null,
         },
         bench.benchmark,
-        { utilityIds, hiddenIds, executeIds },
+        { utilityIds, hiddenIds, executeIds, aoeIds },
       )
     : null;
 

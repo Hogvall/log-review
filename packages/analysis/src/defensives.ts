@@ -292,3 +292,37 @@ export type ExecuteThreshold = (typeof EXECUTE_THRESHOLDS)[number];
 
 export const isExecuteSpell = (name: string) => name in EXECUTES;
 export const executeThresholdOf = (name: string): ExecuteThreshold | null => EXECUTES[name] ?? null;
+
+/**
+ * AoE fillers: worth casting only with several enemies up, so how often top players cast them depends on
+ * the add waves and strategy in their kills, not on the rotation. Spells that are also part of the
+ * single-target rotation (Explosive Shot, Blade Dance, …) aren't here.
+ */
+const AOE_FILLERS = new Set([
+  "Multi-Shot",
+  "Blizzard", "Flamestrike", "Arcane Explosion", "Cone of Cold",
+  "Rain of Fire", "Seed of Corruption", "Implosion",
+  "Earthquake", "Chain Lightning",
+  "Fan of Knives", "Crimson Tempest", "Shuriken Storm", "Black Powder",
+  "Cleave",
+  "Divine Storm",
+  "Holy Nova",
+  "Epidemic",
+  "Swipe",
+  "Spinning Crane Kick",
+  "Pyre",
+]);
+
+export const isAoeSpell = (name: string) => AOE_FILLERS.has(name);
+
+/** Below this share of an ability's damage, a target doesn't count toward "hit several enemies". */
+const AOE_TARGET_SHARE = 0.15;
+
+/**
+ * An ability that spread its damage over 3+ enemies (each taking at least 15% of it) in this pull: an AoE
+ * spell even if it isn't in the list. From the player's DamageDone table, so only for spells they cast.
+ */
+export function hitsSeveralTargets(targets: { total: number }[] | undefined): boolean {
+  const total = (targets ?? []).reduce((sum, t) => sum + t.total, 0);
+  return total > 0 && (targets ?? []).filter((t) => t.total / total >= AOE_TARGET_SHARE).length >= 3;
+}

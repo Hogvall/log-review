@@ -16,6 +16,11 @@ const STATUS: Record<Status, { label: string; className: string; title?: string 
     className: "text-muted",
     title: "More than top players. That isn't better by itself: it can mean this spell is taking the place of a stronger one.",
   },
+  aoe: {
+    label: "depends on adds",
+    className: "text-faint",
+    title: "An AoE spell: how often to cast it depends on how many enemies were up, which differs between kills, wipes and strategies, so it isn't judged.",
+  },
   execute: {
     label: "boss health",
     className: "text-faint",
@@ -313,7 +318,7 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
                   <td className="px-4 py-2 sm:pr-0">
                     <StatusBadge
                       status={a.status}
-                      diff={a.status === "execute" || !a.benchmark.median ? null : a.playerCpm / a.benchmark.median - 1}
+                      diff={a.status === "execute" || a.status === "aoe" || !a.benchmark.median ? null : a.playerCpm / a.benchmark.median - 1}
                       situational={a.role === "utility"}
                       note={
                         a.executeWindow
@@ -351,7 +356,8 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
         pace (first use, then one every so often; hover for it) fits in your time alive, so long and short pulls compare
         fairly. Only abilities that at least half of the top players use are shown. More isn't
         better: top players cast what their rotation needs, so casting a spell more than them usually means it's replacing a
-        stronger one. Movement, defensives and consumables are situational, so they aren't judged. Executes are judged only
+        stronger one. Movement, defensives and consumables are situational, and AoE spells depend on how many enemies were up, so
+        those aren't judged. Executes are judged only
         inside the time a boss was in execute range ("3× &lt;20%"), against top players' rate in theirs; when no boss got
         there, they show "boss health".
       </p>

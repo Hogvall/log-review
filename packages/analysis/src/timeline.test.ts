@@ -8,6 +8,8 @@ import {
   executeStarts,
   compareToBenchmark,
   findPrecasts,
+  hitsSeveralTargets,
+  isAoeSpell,
   isExecuteSpell,
   isUtilitySpell,
   minuteSpans,
@@ -514,5 +516,41 @@ describe("time spent casting (RAI-3)", () => {
     // Under p25 but within 3 points of the median: in line.
     expect(at(0.97).status).toBe("ok");
     expect(at(1).status).toBe("ok");
+  });
+});
+
+describe("AoE spells (RAI-4)", () => {
+  const MULTI_SHOT = 257620;
+  const AIMED = 19434;
+  const ARCANE = 185358;
+  const s = (median: number) => ({ median, p25: median * 0.9, p75: median * 1.1, n: 15, usedBy: 1 });
+  const bench: SpecBenchmark = {
+    sampleSize: 15, insufficient: false, amount: s(270_000), durationMs: s(330_000), itemLevel: s(328), activeTimePct: s(1),
+    cpm: { [MULTI_SHOT]: s(2.3), [AIMED]: s(10.5), [ARCANE]: s(4.4) }, buffUptime: {}, dtps: {}, targetShare: {}, deathRate: 0,
+  };
+  // Aomine: no Multi-Shot, fewer Aimed Shots, lots of Arcane Shot.
+  const c = compareToBenchmark(
+    {
+      amount: 193_700, durationMs: 432_000, aliveMs: 420_000, itemLevel: 328, activeTimeMs: 400_000,
+      casts: { [AIMED]: 67, [ARCANE]: 64 }, damageByAbility: { [AIMED]: 30_000_000, [ARCANE]: 8_000_000 }, buffUptime: {}, targetShare: {},
+    },
+    bench,
+    { aoeIds: new Set([MULTI_SHOT]) },
+  );
+
+  it("shows AoE fillers as 'depends on adds' and never makes them findings", () => {
+    const multi = c.abilities.find((a) => a.abilityId === MULTI_SHOT)!;
+    expect(multi).toMatchObject({ role: "aoe", status: "aoe", estDpsGain: null });
+    expect(c.findings.some((f) => f.kind !== "low-active-time" && "ability" in f && f.ability.abilityId === MULTI_SHOT)).toBe(false);
+    expect(c.abilities.find((a) => a.abilityId === AIMED)!.role).toBe("damage");
+  });
+
+  it("classifies by name, or by damage spread over 3+ enemies", () => {
+    expect(isAoeSpell("Multi-Shot")).toBe(true);
+    expect(isAoeSpell("Aimed Shot")).toBe(false);
+    expect(hitsSeveralTargets([{ total: 40 }, { total: 30 }, { total: 30 }])).toBe(true);
+    // Two bosses (a council) isn't AoE, and a sliver of cleave on a third target doesn't count.
+    expect(hitsSeveralTargets([{ total: 50 }, { total: 45 }, { total: 5 }])).toBe(false);
+    expect(hitsSeveralTargets(undefined)).toBe(false);
   });
 });

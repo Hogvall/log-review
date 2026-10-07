@@ -28,11 +28,14 @@ export interface PlayerPerformance {
   executeStarts?: Partial<ExecuteStarts> | null;
 }
 
-/** "execute": depends on how long the boss spent at low health, so it isn't judged. */
-export type Status = "low" | "ok" | "high" | "missing" | "execute";
+/**
+ * "execute": depends on how long the boss spent at low health, so it isn't judged. "aoe": depends on how
+ * many enemies were up, which differs between kills, wipes and strategies, so it isn't judged either.
+ */
+export type Status = "low" | "ok" | "high" | "missing" | "execute" | "aoe";
 
 /** What kind of spell a rotation row is, which decides how it's judged. */
-export type AbilityRole = "damage" | "utility" | "execute";
+export type AbilityRole = "damage" | "utility" | "execute" | "aoe";
 
 export interface AbilityComparison {
   abilityId: number;
@@ -146,6 +149,8 @@ export interface CompareOptions {
   utilityIds?: Set<number>;
   /** Left out of the tables entirely (e.g. Bloodlust, which one player casts for the raid). */
   hiddenIds?: Set<number>;
+  /** AoE fillers: shown, never judged (their use depends on add waves). */
+  aoeIds?: Set<number>;
   /** Execute spells → health threshold: judged per minute of the time the boss spent below it, when known. */
   executeIds?: Map<number, ExecuteThreshold>;
 }
@@ -173,6 +178,7 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
   const utility = opts.utilityIds ?? new Set<number>();
   const hidden = opts.hiddenIds ?? new Set<number>();
   const executes = opts.executeIds ?? new Map<number, ExecuteThreshold>();
+  const aoe = opts.aoeIds ?? new Set<number>();
   const aliveMin = p.aliveMs / 60_000;
   const durationSec = p.durationMs / 1000;
   const activeTime = p.aliveMs ? p.activeTimeMs / p.aliveMs : 0;
@@ -199,7 +205,13 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
       const casts = p.casts[id] ?? 0;
       const playerCpm = aliveMin ? casts / aliveMin : 0;
       const damagePerCast = casts ? (p.damageByAbility[id] ?? 0) / casts : 0;
-      const role: AbilityRole = executes.has(Number(id)) ? "execute" : utility.has(Number(id)) ? "utility" : "damage";
+      const role: AbilityRole = executes.has(Number(id))
+        ? "execute"
+        : utility.has(Number(id))
+          ? "utility"
+          : aoe.has(Number(id)) && !isCooldownCpm(bench)
+            ? "aoe"
+            : "damage";
       const expected = isCooldownCpm(bench) ? expectedCasts(b, id, p.aliveMs) : null;
 
       let s: Status;
@@ -239,6 +251,10 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
                 : "ok";
         } else missedCasts = 0;
       }
+      if (role === "aoe") {
+        s = "aoe";
+        missedCasts = 0;
+      }
       if (s === "missing" && bench.usedBy < MISSING_USED_BY) s = "low";
       const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
       const estDpsGain = (s === "low" || s === "missing") && gain > 0 ? gain : null;
@@ -273,8 +289,8 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
 
   // Only abilities that clearly affect output become findings; the rest is still shown in the tables.
   const impactful = (a: AbilityComparison) => {
-    // Utility never; executes only when judged inside their window (otherwise their status is "execute").
-    if (a.role === "utility") return false;
+    // Utility and AoE never; executes only when judged inside their window (otherwise their status is "execute").
+    if (a.role === "utility" || a.role === "aoe") return false;
     // Cooldowns whose buff matters count even when the cast itself does little damage.
     if ((b.buffUptime[a.abilityId]?.median ?? 0) >= IMPACTFUL_BUFF_UPTIME) return true;
     return a.estDpsGain != null && (!p.amount || a.estDpsGain >= p.amount * MIN_FINDING_GAIN_SHARE);

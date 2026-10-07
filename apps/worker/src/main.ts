@@ -5,7 +5,7 @@ import { config } from "./config";
 import { aggregateReadyGroups, finalizeSnapshots } from "./finalize";
 import { type FightJobPayload, runFightJob } from "./jobs/fight";
 import { type RankingsJobPayload, runRankingsJob } from "./jobs/rankings";
-import { claimJob, completeJob, failJob, resetStaleJobs } from "./queue";
+import { claimJob, completeJob, failJob, requeueMissingTimelines, resetStaleJobs } from "./queue";
 
 const IDLE_MS = 30_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -22,6 +22,8 @@ for (const signal of ["SIGTERM", "SIGINT"] as const) {
 }
 
 await resetStaleJobs(db);
+const requeued = await requeueMissingTimelines(db, config.difficulties);
+if (requeued) console.log(`re-queued ${requeued} fights crawled before cast timelines were stored for every top player`);
 console.log(
   `worker started (zone ${config.zoneId}, top ${config.topN}, difficulties ${config.difficulties.join(",")}, crawl limit ${config.crawlPointLimit} points/hour)`,
 );

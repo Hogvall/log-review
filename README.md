@@ -42,10 +42,11 @@ When the weekly snapshot has data for your spec on that boss, the report also co
 - **Rotation:** casts per minute of every ability that at least half of the top players use.
 - **Buffs:** uptime of your cooldowns. Procs and externals are shown separately, for context only.
 - **Targets:** your damage split across boss and adds.
-- **Timeline:** the fight over time, next to the #1 player's kill:
+- **Timeline:** the fight over time, compared with the top players' medians (and the #1 player's kill for reference; only #1 for snapshots without timeline medians):
   - **Start of the pull:** spells you hardcast before the pull. WCL logs nothing before the pull, so a precast is a cast landing in the first 1.5s with no begincast, for a spell that has a cast time elsewhere in the fight.
-  - **Opener:** every cast in the first 30 seconds as icon strips, and when each cooldown and your combat potion were first used. Different combat potions count as the same. A cooldown #1 used in their opener that you pressed 8+ seconds later becomes a finding.
-  - **Through the fight:** casts per minute and idle time (4+ seconds without finishing a cast while alive) per boss phase, from WCL's phase transitions. Repeated phases are added together; bosses without phases are split into minutes. Your longest idle stretches are listed with timestamps. Idle time 10+ seconds (and 4% of your time alive) over #1's, scaled to your time alive, becomes a finding with an estimated DPS gain.
+  - **Start of the pull** also says how many top players precast, and what.
+  - **Opener:** every cast in the first 30 seconds as icon strips next to #1's, and when each cooldown and your combat potion were first used vs the top median and #1. Different combat potions count as the same. Cooldowns top players don't press in the first minute (e.g. blinks) are left out. A cooldown at least half of top players press in their opener becomes a finding when you're past their 75th percentile and 8+ seconds behind the median.
+  - **Through the fight:** casts per minute and idle time (4+ seconds without finishing a cast while alive) per boss phase, from WCL's phase transitions. Repeated phases are added together; bosses without phases are split into minutes. Your longest idle stretches are listed with timestamps. Idle time 10+ seconds (and 4% of your time alive) over the top median, scaled to your time alive, becomes a finding with an estimated DPS gain.
   - **Cooldowns over the fight:** your cooldown casts on a timeline next to #1's.
 
 Findings include an **estimated DPS gain** where it can be computed: missed casts × your damage per cast, or downtime × your DPS. An ability is "low" when you're under the top players' 25th percentile and either under 85% of their median or the missed casts are worth 2%+ of your DPS (so a main nuke at 90% still counts). Only abilities that do damage, or cooldowns whose buff top players keep up ≥15% of the fight, become findings, so blinks, defensives and potions don't crowd them out. Healers are compared on casts and buffs only, because their rankings use healing.
@@ -58,7 +59,7 @@ Deaths are grouped so that blame isn't unfair. When at least 25% of the raid (an
 - Deaths during the wipe are "probably not your fault".
 - Deaths after the wipe are ignored.
 
-Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline, plus 1 for your boss debuffs over the pull, plus 1 a day per boss and spec for the #1 player's phase timings. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
+Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline, plus 1 for your boss debuffs over the pull, plus 1 a day per boss and spec for the #1 player's phase timings if the crawler didn't store them. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
 
 ## Weekly benchmark snapshot
 
@@ -68,12 +69,15 @@ Every Wednesday at 06:00 UTC (after both the US and EU resets), the `weekly-snap
 2. Downloads each unique fight **once**. Logs never change, so later weeks reuse fights already downloaded. Per fight:
    - **2 queries for everyone:** active time and target split.
    - **Damage taken** for only the first 60 fights of each boss and difficulty. That sample of ~1,200 players is enough for avoidability, and skipping the rest roughly halves the crawl.
-3. Per ranked player: their own Casts and Buffs tables (complete and named, unlike the all-player tables, which cut ability lists at 5). Each spec's #1 also gets a cast timeline.
-4. As soon as all of one boss and difficulty's fights are done, aggregates that boss, so Mythic data is usable on day one. When the whole queue is empty, it computes **median** benchmarks (with 25th/75th percentiles) per spec and data-driven avoidability per boss ability, then marks the snapshot `complete`.
+   - **1 query** for the fight's boss phases and the report's ability names.
+3. Per ranked player: their own cast events (cast counts, the full timeline and precasts) and Buffs table. Both are complete, unlike the all-player tables, which cut ability lists at 5.
+4. As soon as all of one boss and difficulty's fights are done, aggregates that boss, so Mythic data is usable on day one. A boss is aggregated again whenever its jobs finish after its last aggregation. Spec benchmarks include timeline medians: first use of each cooldown and the combat potion, share of players who precast, and casts per minute and idle share per phase. When the whole queue is empty, it computes **median** benchmarks (with 25th/75th percentiles) per spec and data-driven avoidability per boss ability, then marks the snapshot `complete`.
+
+On startup the worker re-queues finished fights of running snapshots that are missing timelines or phases (crawled before they were stored); the fight job then fetches only what's missing.
 
 The newest `complete` snapshot is the one to compare against. The previous one stays available until the new one finishes. Specs with fewer than 5 ranked players are flagged `insufficient`.
 
-**API budget:** WCL allows 720 points/hour, and almost every query costs about 1 point no matter how much data it returns. The crawler stops for the hour once the client has spent `crawl_point_limit` (default 450), which leaves the rest for the website. A full snapshot is roughly 800 rankings queries plus ~2 per new fight and ~2 per ranked player, about 40–45k points or ~4 days. The budget is shared by everything that uses the client (production, local dev and the website), so a local crawler pauses when production has used the hour's share.
+**API budget:** WCL allows 720 points/hour, and almost every query costs about 1 point no matter how much data it returns. The crawler stops for the hour once the client has spent `crawl_point_limit` (default 450), which leaves the rest for the website. A full snapshot is roughly 800 rankings queries plus ~3 per new fight and ~2 per ranked player, about 45–50k points or ~4–5 days. The budget is shared by everything that uses the client (production, local dev and the website), so a local crawler pauses when production has used the hour's share.
 
 Useful commands:
 

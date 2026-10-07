@@ -25,6 +25,7 @@ import {
   OPENER_MS,
   gainOf,
   isCombatPotion,
+  isCooldownCpm,
   phaseSpans,
   reviewDefensives,
   reviewTimeline,
@@ -35,6 +36,7 @@ import {
   abilities as abilitiesTable,
   benchmarks,
   encounterAbilities,
+  fights,
   playerFightCache,
   playerMetrics,
   rankingEntries,
@@ -309,8 +311,12 @@ export interface TopPlayer {
   phases: PhaseSpan[];
 }
 
-/** The phases of a top player's fight: 1 WCL query per report, cached for a day. */
-async function getTopPhases(reportCode: string, fightId: number, durationMs: number): Promise<PhaseSpan[]> {
+/**
+ * The phases of a top player's fight: stored by the crawler, or for fights crawled before that,
+ * 1 WCL query per report, cached for a day.
+ */
+async function getTopPhases(reportCode: string, fightId: number, durationMs: number, stored: unknown): Promise<PhaseSpan[]> {
+  if (stored) return stored as PhaseSpan[];
   try {
     const report = await topOverviews(reportCode, () => getReportOverview(getWcl(), reportCode));
     const fight = report.fights.find((f) => f.id === fightId);
@@ -346,6 +352,7 @@ async function getBenchmark(
       reportCode: rankingEntries.reportCode,
       fightId: rankingEntries.fightId,
       timeline: playerMetrics.timeline,
+      phases: fights.phases,
     })
     .from(rankingEntries)
     .innerJoin(
@@ -357,6 +364,7 @@ async function getBenchmark(
         eq(playerMetrics.specKey, rankingEntries.specKey),
       ),
     )
+    .leftJoin(fights, and(eq(fights.reportCode, rankingEntries.reportCode), eq(fights.fightId, rankingEntries.fightId)))
     .where(
       and(
         eq(rankingEntries.snapshotId, row.snapshotId),
@@ -377,7 +385,7 @@ async function getBenchmark(
           amount: top.amount,
           durationMs: top.durationMs,
           timeline: top.timeline as [number, number][],
-          phases: await getTopPhases(top.reportCode, top.fightId, top.durationMs),
+          phases: await getTopPhases(top.reportCode, top.fightId, top.durationMs, top.phases),
         }
       : null,
   };
@@ -504,12 +512,20 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     amount,
     phases,
     top: top ? { casts: top.timeline, durationMs: top.durationMs, phases: top.phases } : null,
-    // Cooldowns: abilities top players cast at most ~2 times a minute, plus the combat potion.
+    // Cooldowns: abilities top players cast at most ~2 times a minute, plus the combat potion. With timeline
+    // medians, only those top players press in the first minute (not e.g. a blink used whenever).
     cooldownIds: [
-      ...(comparison?.abilities ?? []).filter((a) => a.benchmark.median > 0 && a.benchmark.median <= 2).map((a) => a.abilityId),
+      ...(comparison?.abilities ?? [])
+        .filter((a) => isCooldownCpm(a.benchmark))
+        .filter((a) => {
+          const first = bench?.benchmark.timeline?.firstUse[a.abilityId];
+          return !bench?.benchmark.timeline || (first != null && first.median <= 60_000);
+        })
+        .map((a) => a.abilityId),
       ...(comparison ? potionIds : []),
     ],
-    equivalent: potionIds.length > 1 ? [potionIds] : [],
+    potionIds,
+    benchmark: bench?.benchmark.timeline ?? null,
   });
   if (comparison && timeline.findings.length) {
     comparison.findings = [...comparison.findings, ...timeline.findings].sort((x, y) => (gainOf(y) ?? -1) - (gainOf(x) ?? -1));

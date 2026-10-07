@@ -1,5 +1,6 @@
 import type { PlayerMetrics } from "./fight-metrics";
 import { type KeyedSummary, type Summary, summarize, summarizeMaps } from "./stats";
+import { type TimelineBenchmark, type TimelineMember, timelineBenchmark } from "./timeline";
 
 /** One ranked player with their fight metrics, as input to a spec benchmark. */
 export interface CohortMember {
@@ -7,6 +8,8 @@ export interface CohortMember {
   itemLevel: number | null;
   metrics: PlayerMetrics;
   buffUptime: Record<string, number> | null;
+  /** Full cast timeline; only for players crawled since timelines were stored for everyone. */
+  timeline?: TimelineMember | null;
 }
 
 export interface SpecBenchmark {
@@ -23,13 +26,20 @@ export interface SpecBenchmark {
   targetShare: Record<string, KeyedSummary>;
   /** Share of the cohort that died at least once. */
   deathRate: number;
+  /** Opener, precast and per-phase medians; missing in older snapshots or with too few timelines. */
+  timeline?: TimelineBenchmark | null;
 }
+
+/** Cooldowns: abilities top players cast at most ~2 times a minute. */
+export const isCooldownCpm = (s: KeyedSummary) => s.median > 0 && s.median <= 2;
 
 export const MIN_SAMPLE = 5;
 
 /** Median-based benchmark for one spec on one boss and difficulty. */
-export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE): SpecBenchmark {
+export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE, potionIds = new Set<number>()): SpecBenchmark {
   const withBuffs = cohort.filter((c) => c.buffUptime);
+  const cpm = summarizeMaps(cohort.map((c) => c.metrics.cpm));
+  const cooldownIds = Object.entries(cpm).filter(([, s]) => isCooldownCpm(s)).map(([id]) => Number(id));
   return {
     sampleSize: cohort.length,
     insufficient: cohort.length < minSample,
@@ -37,12 +47,17 @@ export function specBenchmark(cohort: CohortMember[], minSample = MIN_SAMPLE): S
     durationMs: summarize(cohort.map((c) => c.metrics.durationMs)),
     itemLevel: summarize(cohort.flatMap((c) => (c.itemLevel ? [c.itemLevel] : []))),
     activeTimePct: summarize(cohort.map((c) => c.metrics.activeTimePct)),
-    cpm: summarizeMaps(cohort.map((c) => c.metrics.cpm)),
+    cpm,
     buffUptime: summarizeMaps(withBuffs.map((c) => c.buffUptime!)),
     // Damage taken keeps rarer abilities: one player eating a mechanic is exactly what we want to see.
     dtps: summarizeMaps(cohort.map((c) => c.metrics.dtps), 0),
     targetShare: summarizeMaps(cohort.map((c) => c.metrics.targetShare)),
     deathRate: cohort.length ? cohort.filter((c) => c.metrics.deaths > 0).length / cohort.length : 0,
+    timeline: timelineBenchmark(
+      cohort.flatMap((c) => (c.timeline ? [c.timeline] : [])),
+      cooldownIds,
+      potionIds,
+    ),
   };
 }
 

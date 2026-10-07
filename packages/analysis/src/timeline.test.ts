@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   type CastMark,
   type SpecBenchmark,
+  POTION_KEY,
   castGaps,
   compareToBenchmark,
   findPrecasts,
   minuteSpans,
   phaseSpans,
   reviewTimeline,
+  timelineBenchmark,
 } from "./index";
 
 const PYRO = 11366;
@@ -109,8 +111,8 @@ describe("reviewTimeline", () => {
       cooldownIds: [COMBUSTION],
     });
     expect(r.precasts).toEqual([PYRO]);
-    expect(r.opener.firstUses).toEqual([{ abilityId: COMBUSTION, player: 20_800, top: 1500 }]);
-    expect(r.findings).toEqual([{ kind: "late-cooldown", abilityId: COMBUSTION, playerMs: 20_800, topMs: 1500 }]);
+    expect(r.opener.firstUses).toEqual([{ abilityId: COMBUSTION, player: 20_800, top: 1500, median: null }]);
+    expect(r.findings).toEqual([{ kind: "late-cooldown", abilityId: COMBUSTION, playerMs: 20_800, topMs: 1500, basis: "top1" }]);
   });
 
   it("treats different combat potions as the same for first use", () => {
@@ -124,9 +126,9 @@ describe("reviewTimeline", () => {
       phases: [],
       top: { ...top, casts: [[4100, OTHER_POTION]] },
       cooldownIds: [POTION, OTHER_POTION],
-      equivalent: [[POTION, OTHER_POTION]],
+      potionIds: [POTION, OTHER_POTION],
     });
-    expect(r.opener.firstUses).toEqual([{ abilityId: POTION, player: 620, top: 4100 }]);
+    expect(r.opener.firstUses).toEqual([{ abilityId: POTION, player: 620, top: 4100, median: null }]);
   });
 
   it("merges repeated phases and flags idle time beyond #1's", () => {
@@ -210,5 +212,48 @@ describe("compareToBenchmark: big damage abilities", () => {
     // Fire Blast's gap is under 2% of DPS and above 85% of the median: still fine.
     expect(c.abilities.find((a) => a.abilityId === FIRE_BLAST)!.status).toBe("ok");
     expect(c.findings[0]).toMatchObject({ kind: "low-casts", ability: { abilityId: PYRO } });
+  });
+});
+
+describe("timelineBenchmark", () => {
+  const phases = [
+    { id: 1, name: "Stage One", intermission: false, startMs: 0, endMs: 100_000 },
+    { id: 2, name: "Intermission", intermission: true, startMs: 100_000, endMs: 200_000 },
+  ];
+  // Five top players: Combustion at 1–5s, one drinks a different potion, one never precasts.
+  const members = [1, 2, 3, 4, 5].map((i) => ({
+    casts: [...steady(0, 200_000, 1000), [i * 1000 + 500, COMBUSTION] as CastMark, [600, i === 5 ? 999 : POTION] as CastMark],
+    precasts: i === 5 ? [] : [PYRO],
+    durationMs: 200_000,
+    phases,
+  }));
+  const bench = timelineBenchmark(members, [COMBUSTION], new Set([POTION, 999]))!;
+
+  it("summarizes first uses, precasts and phases", () => {
+    expect(bench.sampleSize).toBe(5);
+    expect(bench.firstUse[COMBUSTION]).toMatchObject({ median: 3500, usedBy: 1 });
+    expect(bench.firstUse[POTION_KEY]).toMatchObject({ median: 600, usedBy: 1 });
+    expect(bench.precast).toEqual({ share: 0.8, abilityId: PYRO });
+    expect(bench.phases[1]!.cpm.median).toBeCloseTo(61.2, 1);
+    expect(bench.phases[2]!.idleShare.median).toBe(0);
+    expect(bench.idleShare.median).toBe(0);
+    expect(timelineBenchmark(members.slice(0, 2), [COMBUSTION], new Set())).toBeNull();
+  });
+
+  it("judges the opener and idle time against the medians, not #1", () => {
+    // #1 pressed Combustion at 0.5s; the median is 3.5s. At 9s you're 5.5s behind the median: not flagged.
+    const top = { casts: [[500, COMBUSTION]] as CastMark[], durationMs: 200_000, phases };
+    const base = { precasts: [], durationMs: 200_000, aliveMs: 200_000, amount: 100_000, phases, top, benchmark: bench, cooldownIds: [COMBUSTION] };
+    const onTime = reviewTimeline({ ...base, casts: [...steady(0, 200_000, 1000), [9000, COMBUSTION]] });
+    expect(onTime.findings).toEqual([]);
+    expect(onTime.opener.firstUses[0]).toMatchObject({ top: 500, median: { median: 3500 } });
+    expect(onTime.phases[0]!.median?.cpm.median).toBeCloseTo(61.2, 1);
+    expect(onTime.topPrecast).toEqual({ share: 0.8, abilityId: PYRO });
+
+    const late = reviewTimeline({ ...base, casts: [...steady(0, 200_000, 1000), [20_000, COMBUSTION]] });
+    expect(late.findings).toEqual([{ kind: "late-cooldown", abilityId: COMBUSTION, playerMs: 20_000, topMs: 3500, basis: "median" }]);
+
+    const idle = reviewTimeline({ ...base, casts: [...steady(0, 50_000, 1000), ...steady(80_000, 200_000, 1000), [3000, COMBUSTION]] });
+    expect(idle.findings).toMatchObject([{ kind: "idle-time", playerMs: 31_000, topMs: 0, basis: "median" }]);
   });
 });

@@ -1,4 +1,4 @@
-import type { Activity, CastMark, PhaseSpan, TimelineReview } from "@log-review/analysis";
+import { type CastMark, type PhaseSpan, type TimelineReview, activityCpm, activityIdleShare } from "@log-review/analysis";
 import type { AbilityInfo } from "./report";
 import { Ability } from "./ui";
 import { abilityIconUrl, fightTime, percent, wowheadSpellUrl } from "@/lib/format";
@@ -48,6 +48,17 @@ export function PullStart({ timeline, abilities }: { timeline: TimelineReview; a
           "No casts in the first 30 seconds."
         )}
       </p>
+      {timeline.topPrecast && (
+        <p className="text-xs text-faint">
+          {percent(timeline.topPrecast.share)} of top players precast
+          {timeline.topPrecast.abilityId != null && timeline.topPrecast.share > 0 && (
+            <>
+              , most often <Ability id={timeline.topPrecast.abilityId} name={abilities[timeline.topPrecast.abilityId]?.name} icon={abilities[timeline.topPrecast.abilityId]?.icon} />
+            </>
+          )}
+          .
+        </p>
+      )}
     </div>
   );
 }
@@ -84,11 +95,19 @@ function CastStrip({ casts, windowMs, cooldowns, abilities }: { casts: CastMark[
 export function Opener({ timeline, abilities, topName }: { timeline: TimelineReview; abilities: AbilityInfo; topName: string | null }) {
   const { opener } = timeline;
   const cooldowns = new Set(opener.firstUses.map((f) => f.abilityId));
-  const late = new Set(timeline.findings.flatMap((f) => (f.kind === "late-cooldown" ? [f.abilityId] : [])));
+  const late = new Map(timeline.findings.flatMap((f) => (f.kind === "late-cooldown" ? [[f.abilityId, f.playerMs - f.topMs] as const] : [])));
+  const hasMedian = opener.firstUses.some((f) => f.median);
   const ticks = Array.from({ length: opener.windowMs / 5000 + 1 }, (_, i) => i * 5000);
   return (
     <div>
-      <Heading hint={<>Every cast in the first {opener.windowMs / 1000} seconds. Cooldowns are outlined. Hover an icon for its time.</>}>
+      <Heading
+        hint={
+          <>
+            Every cast in the first {opener.windowMs / 1000} seconds next to the #1 player's. Cooldowns are outlined. Hover an icon for its time.
+            {hasMedian && " First uses compare with the top players' median (Top) and #1."}
+          </>
+        }
+      >
         Opener
       </Heading>
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
@@ -120,6 +139,7 @@ export function Opener({ timeline, abilities, topName }: { timeline: TimelineRev
             <tr className="border-b border-line">
               <th className="pb-1 pr-3 font-medium">First used</th>
               <th className="pb-1 pr-3 text-right font-medium">You</th>
+              {hasMedian && <th className="pb-1 pr-3 text-right font-medium">Top</th>}
               <th className="pb-1 pr-3 text-right font-medium">#1</th>
               <th className="pb-1 text-right font-medium" />
             </tr>
@@ -133,10 +153,13 @@ export function Opener({ timeline, abilities, topName }: { timeline: TimelineRev
                 <td className={`num py-1.5 pr-3 text-right ${late.has(f.abilityId) ? "text-dmg" : "text-fg/85"}`}>
                   {f.player == null ? "never" : secsOrClock(f.player)}
                 </td>
-                <td className="num py-1.5 pr-3 text-right text-muted">{f.top == null ? "–" : secsOrClock(f.top)}</td>
-                <td className="num py-1.5 text-right text-xs text-dmg">
-                  {late.has(f.abilityId) && f.player != null && f.top != null ? `${secs(f.player - f.top)} late` : ""}
-                </td>
+                {hasMedian && (
+                  <td className="num py-1.5 pr-3 text-right text-muted" title={f.median ? `${percent(f.median.usedBy)} of top players use it` : undefined}>
+                    {f.median ? secsOrClock(f.median.median) : "–"}
+                  </td>
+                )}
+                <td className="num py-1.5 pr-3 text-right text-faint">{f.top == null ? "–" : secsOrClock(f.top)}</td>
+                <td className="num py-1.5 text-right text-xs text-dmg">{late.get(f.abilityId) != null ? `${secs(late.get(f.abilityId)!)} late` : ""}</td>
               </tr>
             ))}
           </tbody>
@@ -149,11 +172,11 @@ export function Opener({ timeline, abilities, topName }: { timeline: TimelineRev
 /** Seconds in the opener, m:ss later in the fight. */
 const secsOrClock = (ms: number) => (ms < 60_000 ? secs(ms) : fightTime(ms));
 
-const cpm = (a: Activity) => (a.durationMs ? (a.casts * 60_000) / a.durationMs : 0);
-
-/** Casts per minute and idle time in each boss phase (or minute), you vs #1. */
+/** Casts per minute and idle time in each boss phase (or minute): you vs top players' median, or #1 without one. */
 export function PhaseActivityTable({ timeline, phases }: { timeline: TimelineReview; phases: PhaseSpan[] }) {
-  const hasTop = timeline.phases.some((p) => p.top);
+  const hasMedian = timeline.phases.some((p) => p.median);
+  const hasTop = hasMedian || timeline.phases.some((p) => p.top);
+  const topLabel = hasMedian ? "Top" : "#1";
   const phaseOf = (ms: number) => phases.find((p) => ms >= p.startMs && ms < p.endMs)?.name;
   const longest = [...timeline.gaps].sort((a, b) => b.endMs - b.startMs - (a.endMs - a.startMs)).slice(0, 5);
   return (
@@ -162,6 +185,7 @@ export function PhaseActivityTable({ timeline, phases }: { timeline: TimelineRev
         hint={
           <>
             Idle means {"≥"}4 seconds without finishing a cast while alive. {timeline.byPhase ? "Repeated phases are added together." : "This boss has no phases, so the fight is split into minutes."}
+            {hasMedian && ` Top is the median of ${timeline.sampleSize} top players.`}
           </>
         }
       >
@@ -174,36 +198,32 @@ export function PhaseActivityTable({ timeline, phases }: { timeline: TimelineRev
               <th className="pb-1 pr-3 font-medium">{timeline.byPhase ? "Phase" : "Window"}</th>
               <th className="pb-1 pr-3 text-right font-medium">Time</th>
               <th className="pb-1 pr-3 text-right font-medium">Casts/min</th>
-              {hasTop && <th className="pb-1 pr-3 text-right font-medium">#1</th>}
+              {hasTop && <th className="pb-1 pr-3 text-right font-medium">{topLabel}</th>}
               <th className="pb-1 pr-3 text-right font-medium">Idle</th>
-              {hasTop && <th className="pb-1 text-right font-medium">#1</th>}
+              {hasTop && <th className="pb-1 text-right font-medium">{topLabel}</th>}
             </tr>
           </thead>
           <tbody>
             {timeline.phases.map((p) => {
               const you = p.you;
-              const top = p.top;
+              const ref = hasMedian
+                ? p.median && { cpm: p.median.cpm.median, idleShare: p.median.idleShare.median }
+                : p.top && { cpm: activityCpm(p.top), idleShare: activityIdleShare(p.top) };
               // Compare idle as a share of the phase: phases last different times in different kills.
-              const idleShare = you && you.durationMs ? you.idleMs / you.durationMs : 0;
-              const topIdleShare = top && top.durationMs ? top.idleMs / top.durationMs : null;
-              const badIdle = you != null && topIdleShare != null && idleShare - topIdleShare >= 0.05 && you.idleMs >= 5000;
-              const lowCpm = you != null && top != null && cpm(you) < cpm(top) * 0.9;
+              const idleShare = you ? activityIdleShare(you) : 0;
+              const badIdle = you != null && ref != null && idleShare - ref.idleShare >= 0.05 && you.idleMs >= 5000;
+              const lowCpm = you != null && ref != null && activityCpm(you) < ref.cpm * 0.9;
               return (
                 <tr key={p.id} className="border-b border-line/40">
                   <td className={`py-1.5 pr-3 ${p.intermission ? "text-muted" : "text-fg"}`}>{p.name}</td>
                   <td className="num py-1.5 pr-3 text-right text-muted">{you ? fightTime(you.durationMs) : "dead"}</td>
-                  <td className={`num py-1.5 pr-3 text-right ${lowCpm ? "text-dmg" : "text-fg/85"}`}>{you ? cpm(you).toFixed(1) : "–"}</td>
-                  {hasTop && <td className="num py-1.5 pr-3 text-right text-muted">{top ? cpm(top).toFixed(1) : "–"}</td>}
+                  <td className={`num py-1.5 pr-3 text-right ${lowCpm ? "text-dmg" : "text-fg/85"}`}>{you ? activityCpm(you).toFixed(1) : "–"}</td>
+                  {hasTop && <td className="num py-1.5 pr-3 text-right text-muted">{ref ? ref.cpm.toFixed(1) : "–"}</td>}
                   <td className={`num py-1.5 pr-3 text-right ${badIdle ? "text-dmg" : "text-fg/85"}`}>
                     {you ? `${Math.round(you.idleMs / 1000)}s` : "–"}
                     {you && you.durationMs > 0 && <span className="text-xs text-faint"> {percent(idleShare)}</span>}
                   </td>
-                  {hasTop && (
-                    <td className="num py-1.5 text-right text-muted">
-                      {top ? `${Math.round(top.idleMs / 1000)}s` : "–"}
-                      {topIdleShare != null && <span className="text-xs text-faint"> {percent(topIdleShare)}</span>}
-                    </td>
-                  )}
+                  {hasTop && <td className="num py-1.5 text-right text-muted">{ref ? percent(ref.idleShare) : "–"}</td>}
                 </tr>
               );
             })}
@@ -213,12 +233,17 @@ export function PhaseActivityTable({ timeline, phases }: { timeline: TimelineRev
 
       <p className="mt-3 text-sm text-fg/85">
         Idle in total: <span className="num">{Math.round(timeline.idleMs / 1000)}s</span>
-        {timeline.topIdleMs != null && (
+        {timeline.medianIdleMs != null ? (
+          <>
+            {" "}
+            vs <span className="num">{Math.round(timeline.medianIdleMs / 1000)}s</span> for top players (median) over the same time
+          </>
+        ) : timeline.topIdleMs != null ? (
           <>
             {" "}
             vs <span className="num">{Math.round(timeline.topIdleMs / 1000)}s</span> for #1 over the same time
           </>
-        )}
+        ) : null}
         .
       </p>
       {longest.length > 0 && (

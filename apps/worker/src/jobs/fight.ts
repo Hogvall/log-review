@@ -1,12 +1,15 @@
 import {
+  type CastMark,
   type CastsTableEntry,
   type DamageDoneTableEntry,
   type PlayerMetrics,
   buffUptimes,
   extractFightMetrics,
+  findPrecasts,
+  phaseSpans,
 } from "@log-review/analysis";
 import { type Db, abilities, fights, playerMetrics, rankingEntries } from "@log-review/db";
-import { ENEMY_SOURCES, type WclQuerier, getFightEvents, getFightTable } from "@log-review/wcl";
+import { ENEMY_SOURCES, type WclQuerier, getFightEvents, getFightMeta, getFightTable } from "@log-review/wcl";
 import { and, count, eq } from "drizzle-orm";
 
 export interface FightJobPayload {
@@ -29,14 +32,18 @@ type Named = { guid: number; name: string; abilityIcon?: string };
 
 /**
  * Downloads one fight (once ever: logs don't change) and fills in what this snapshot's ranked players
- * in it need. Per fight: 2 queries for everyone (active time, target split), plus damage taken for the
- * first fights of each boss (avoidability). Per ranked player: their casts and buffs (1 query each),
- * and a cast timeline for #1 players.
+ * in it need. Per fight: 2 queries for everyone (active time, target split), 1 for boss phases and
+ * ability names, plus damage taken for the first fights of each boss (avoidability). Per ranked player:
+ * their cast events (counts, timeline and precasts) and buffs, 1 query each.
+ *
+ * Every step is skipped when its data is already stored, so re-running a done job (a backfill) only
+ * fetches what's missing.
  */
 export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p: FightJobPayload) {
   const where = and(eq(fights.reportCode, p.reportCode), eq(fights.fightId, p.fightId));
   const [existing] = await db.select({ durationMs: fights.durationMs }).from(fights).where(where).limit(1);
   const durationMs = existing?.durationMs ?? (await downloadFight(db, wcl, p));
+  await ensurePhases(db, wcl, p, durationMs);
 
   const ranked = await db
     .select({ name: rankingEntries.name, specKey: rankingEntries.specKey, rank: rankingEntries.rank })
@@ -63,6 +70,7 @@ export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p
         metrics: playerMetrics.metrics,
         buffUptime: playerMetrics.buffUptime,
         timeline: playerMetrics.timeline,
+        precasts: playerMetrics.precasts,
       })
       .from(playerMetrics)
       .where(pmWhere)
@@ -72,16 +80,27 @@ export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p
       continue;
     }
 
-    // Casts per minute from the player's own Casts table: complete (unlike the all-players table) and named.
+    // The player's own cast events: complete (unlike the all-players Casts table, which cuts abilities at 5)
+    // and timed, so one query gives casts per minute, the timeline and precasts.
     const metrics = pm.metrics as PlayerMetrics;
-    if (!Object.keys(metrics.cpm).length) {
-      const table = await getFightTable<{ entries: (Named & { total: number })[] }>(wcl, p.reportCode, p.fightId, "Casts", {
-        sourceID: pm.actorId,
-      });
-      const cpm: Record<string, number> = {};
-      for (const e of table.entries ?? []) cpm[e.guid] = (e.total * 60_000) / durationMs;
-      names.push(...(table.entries ?? []));
-      await db.update(playerMetrics).set({ metrics: { ...metrics, cpm } }).where(pmWhere);
+    if (!Object.keys(metrics.cpm).length || !pm.timeline || !pm.precasts) {
+      const events = await getFightEvents(
+        wcl,
+        p.reportCode,
+        { id: p.fightId, startTime: p.fightStartTime, endTime: p.fightEndTime },
+        "Casts",
+        { sourceID: pm.actorId },
+      );
+      const own = events.filter((e) => e.abilityGameID && e.sourceID === pm.actorId);
+      const timeline: CastMark[] = own.filter((e) => e.type === "cast").map((e) => [e.timestamp - p.fightStartTime, e.abilityGameID!]);
+      const precasts = findPrecasts(own.map((e) => ({ fightTimeMs: e.timestamp - p.fightStartTime, type: e.type, abilityId: e.abilityGameID! })));
+      const update: Partial<typeof playerMetrics.$inferInsert> = { timeline, precasts };
+      if (!Object.keys(metrics.cpm).length) {
+        const cpm: Record<string, number> = {};
+        for (const [, id] of timeline) cpm[id] = (cpm[id] ?? 0) + 60_000 / durationMs;
+        update.metrics = { ...metrics, cpm };
+      }
+      await db.update(playerMetrics).set(update).where(pmWhere);
     }
 
     if (!pm.buffUptime) {
@@ -90,20 +109,6 @@ export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p
       });
       names.push(...(table.auras ?? []));
       await db.update(playerMetrics).set({ buffUptime: buffUptimes(table.auras ?? [], durationMs) }).where(pmWhere);
-    }
-
-    if (r.rank === 1 && !pm.timeline) {
-      const events = await getFightEvents(
-        wcl,
-        p.reportCode,
-        { id: p.fightId, startTime: p.fightStartTime, endTime: p.fightEndTime },
-        "Casts",
-        { sourceID: pm.actorId },
-      );
-      const timeline = events
-        .filter((e) => e.type === "cast" && e.abilityGameID)
-        .map((e) => [e.timestamp - p.fightStartTime, e.abilityGameID!]);
-      await db.update(playerMetrics).set({ timeline }).where(pmWhere);
     }
   }
 
@@ -115,6 +120,23 @@ export async function runFightJob(db: Db, wcl: WclQuerier, snapshotId: number, p
       .values([...unique.values()].map((a) => ({ id: a.guid, name: a.name, icon: a.abilityIcon || null })))
       .onConflictDoNothing();
   }
+}
+
+/** Stores the fight's boss phases and the report's ability names (cast events only carry IDs): 1 query, once. */
+async function ensurePhases(db: Db, wcl: WclQuerier, p: FightJobPayload, durationMs: number) {
+  const where = and(eq(fights.reportCode, p.reportCode), eq(fights.fightId, p.fightId));
+  const [row] = await db.select({ phases: fights.phases }).from(fights).where(where).limit(1);
+  if (!row || row.phases) return;
+  const meta = await getFightMeta(wcl, p.reportCode, p.fightId);
+  const phases = meta ? phaseSpans(meta.phaseTransitions, meta.startTime, durationMs, meta.phases) : [];
+  const names = (meta?.abilities ?? []).filter((a) => a.gameID > 0 && a.name);
+  for (let i = 0; i < names.length; i += 500) {
+    await db
+      .insert(abilities)
+      .values(names.slice(i, i + 500).map((a) => ({ id: a.gameID, name: a.name, icon: a.icon || null })))
+      .onConflictDoNothing();
+  }
+  await db.update(fights).set({ phases }).where(where);
 }
 
 /** Stores what we know about every player in the fight and returns its duration. */

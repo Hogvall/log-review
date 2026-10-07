@@ -5,6 +5,7 @@ import {
   type PhaseSpan,
   type PlayerMetrics,
   encounterAvoidability,
+  tankAvoidability,
   type ExecuteStarts,
   type ExecuteThreshold,
   executeThresholdOf,
@@ -171,6 +172,11 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
   const avoidability = encounterAvoidability(
     fightPlayers.filter((p) => roleOf(p.specKey) !== "tank").map((p) => p.metrics as PlayerMetrics),
   );
+  // Tanks get their own view: they take boss melee and tank busters on purpose.
+  const forTanks = tankAvoidability(
+    fightPlayers.filter((p) => roleOf(p.specKey) === "tank").map((p) => p.metrics as PlayerMetrics),
+    avoidability,
+  );
 
   const scope = (table: typeof benchmarks | typeof encounterAbilities) =>
     and(eq(table.snapshotId, snapshotId), eq(table.encounterId, encounterId), eq(table.difficulty, difficulty));
@@ -187,16 +193,24 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
         }),
       );
     }
-    const abilityRows = Object.entries(avoidability).map(([abilityId, a]) => ({
-      snapshotId,
-      encounterId,
-      difficulty,
-      abilityId: Number(abilityId),
-      zeroShare: a.zeroShare,
-      medianDtpsWhenHit: a.medianDtpsWhenHit,
-      sampleSize: a.sampleSize,
-      classification: a.classification,
-    }));
+    // One row per ability anyone took. Abilities only tanks took: no non-tank took them, so they're avoidable for everyone else.
+    const nonTankSample = Object.values(avoidability)[0]?.sampleSize ?? 0;
+    const abilityRows = [...new Set([...Object.keys(avoidability), ...Object.keys(forTanks)])].map((abilityId) => {
+      const a = avoidability[abilityId];
+      const t = forTanks[abilityId];
+      return {
+        snapshotId,
+        encounterId,
+        difficulty,
+        abilityId: Number(abilityId),
+        zeroShare: a?.zeroShare ?? 1,
+        medianDtpsWhenHit: a?.medianDtpsWhenHit ?? 0,
+        sampleSize: a?.sampleSize ?? nonTankSample,
+        classification: a?.classification ?? ("avoidable" as const),
+        tankZeroShare: t?.zeroShare ?? null,
+        tankClassification: t?.classification ?? null,
+      };
+    });
     for (let i = 0; i < abilityRows.length; i += 500) {
       await tx.insert(encounterAbilities).values(abilityRows.slice(i, i + 500));
     }

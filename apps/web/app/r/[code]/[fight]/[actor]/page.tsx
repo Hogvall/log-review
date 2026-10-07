@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { roleOf } from "@log-review/analysis";
 import { DeathStoryView } from "@/components/death-story";
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { BuffTable, CooldownTimeline, PerfFindingCard, RotationTable, TargetTable } from "@/components/performance";
@@ -71,6 +72,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   const perfCount = (kinds: string[]) => comparison?.findings.filter((f) => kinds.includes(f.kind)).length ?? 0;
   const badge = (n: number) => (n ? String(n) : undefined);
   const avoidabilityById = Object.fromEntries(analysis.damageTaken.map((a) => [a.abilityId, a.classification]));
+  const isTank = !!player.specKey && roleOf(player.specKey) === "tank";
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   const tabs: Tab[] = [
@@ -148,7 +150,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
         ) : (
           <>
             <p className="mb-2 text-sm text-muted">
-              Labels compare with top players{snapshotWeek ? ` (${weekLabel(snapshotWeek)})` : ""}.
+              Labels compare with top {isTank ? "tanks (boss melee and tank busters show as tank mechanics)" : "players"}
+              {snapshotWeek ? ` (${weekLabel(snapshotWeek)})` : ""}.
               {bossGuide && (
                 <>
                   {" "}
@@ -182,7 +185,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                         {tips[a.abilityId] && <span className="mt-0.5 block max-w-md text-xs text-muted">{tips[a.abilityId]!.tip}</span>}
                       </td>
                       <td className="py-1.5 pr-3">
-                        <AvoidabilityBadge value={a.classification} zeroShare={a.zeroShare} />
+                        <AvoidabilityBadge value={a.classification} zeroShare={a.zeroShare} tank={isTank} />
                       </td>
                       <td className="num py-1.5 pr-3 text-right text-fg/85">{a.hits}</td>
                       <td className="num py-1.5 pr-3 text-right text-fg/85">{compact(a.total)}</td>

@@ -298,7 +298,10 @@ async function getPlayerData(code: string, fight: Fight, actorId: number): Promi
 }
 
 /** Avoidability for a boss and difficulty from the newest snapshot that has it. */
-async function getAvoidability(encounterId: number, difficulty: number): Promise<{ map: AvoidabilityMap; week: string | null }> {
+async function getAvoidability(
+  encounterId: number,
+  difficulty: number,
+): Promise<{ map: AvoidabilityMap; tankMap: AvoidabilityMap; week: string | null }> {
   const db = getDb();
   const scope = and(eq(encounterAbilities.encounterId, encounterId), eq(encounterAbilities.difficulty, difficulty));
   const [latest] = await db
@@ -308,15 +311,23 @@ async function getAvoidability(encounterId: number, difficulty: number): Promise
     .where(scope)
     .orderBy(desc(encounterAbilities.snapshotId))
     .limit(1);
-  if (!latest) return { map: {}, week: null };
+  if (!latest) return { map: {}, tankMap: {}, week: null };
 
   const rows = await db
     .select()
     .from(encounterAbilities)
     .where(and(scope, eq(encounterAbilities.snapshotId, latest.snapshotId)));
   const map: AvoidabilityMap = {};
-  for (const r of rows) map[r.abilityId] = { classification: r.classification, zeroShare: r.zeroShare };
-  return { map, week: latest.week };
+  // Tanks' view, falling back to everyone's for abilities (or snapshots) without enough tank data.
+  const tankMap: AvoidabilityMap = {};
+  for (const r of rows) {
+    map[r.abilityId] = { classification: r.classification, zeroShare: r.zeroShare };
+    tankMap[r.abilityId] =
+      r.tankClassification && r.tankZeroShare != null
+        ? { classification: r.tankClassification, zeroShare: r.tankZeroShare }
+        : map[r.abilityId]!;
+  }
+  return { map, tankMap, week: latest.week };
 }
 
 export interface TopPlayer {
@@ -450,7 +461,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   const [data, details, avoidability] = await Promise.all([
     getPlayerData(code, fight, actorId),
     getPlayers(code, fightId),
-    fight.difficulty ? getAvoidability(fight.encounterID, fight.difficulty) : Promise.resolve({ map: {}, week: null }),
+    fight.difficulty ? getAvoidability(fight.encounterID, fight.difficulty) : Promise.resolve({ map: {}, tankMap: {}, week: null }),
   ]);
   const detail = [...details.tanks, ...details.healers, ...details.dps].find((p) => p.id === actorId);
   const specKey = detail?.icon ?? null;
@@ -463,7 +474,8 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     kill: !!fight.kill,
     raidDeaths: data.deaths,
     damageTaken: data.damageTaken,
-    avoidability: avoidability.map,
+    // Tanks take boss melee and tank busters on purpose, so they're judged by top tanks.
+    avoidability: specKey && roleOf(specKey) === "tank" ? avoidability.tankMap : avoidability.map,
   });
 
   const { stories: deathStories, windows: deathWindows } = await getDeathStories(

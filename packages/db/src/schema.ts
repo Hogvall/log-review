@@ -167,7 +167,10 @@ export const aggregations = pgTable(
   (t) => [primaryKey({ columns: [t.snapshotId, t.encounterId, t.difficulty] })],
 );
 
-/** Data-driven avoidability of each boss ability, from all non-tank players in the snapshot's fights. */
+/**
+ * Data-driven avoidability of each boss ability, from all non-tank players in the snapshot's fights, plus a
+ * separate tank view from the tanks in the same fights.
+ */
 export const encounterAbilities = pgTable(
   "encounter_abilities",
   {
@@ -181,6 +184,9 @@ export const encounterAbilities = pgTable(
     medianDtpsWhenHit: real("median_dtps_when_hit").notNull(),
     sampleSize: integer("sample_size").notNull(),
     classification: text("classification", { enum: ["avoidable", "situational", "unavoidable"] }).notNull(),
+    /** From tanks' point of view (tanks take boss melee and tank busters on purpose); null without enough tanks. */
+    tankZeroShare: real("tank_zero_share"),
+    tankClassification: text("tank_classification", { enum: ["avoidable", "situational", "unavoidable", "tank-mechanic"] }),
   },
   (t) => [primaryKey({ name: "encounter_abilities_pk", columns: [t.snapshotId, t.encounterId, t.difficulty, t.abilityId] })],
 );

@@ -31,7 +31,7 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
        Defensives come from a per-class list matched by spell name (`packages/analysis/src/defensives.ts`). One you never pressed is only mentioned if it's core to the class, or most top players of your spec use it.
      - **How to handle it:** boss tips for the abilities in the final drop.
      - **Who was healing you (for healers):** each healer's healing and shields during the final drop and over the last 15 seconds, their top spells, and any healing that heal-absorb effects ate.
-   - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players.
+   - **Damage taken:** each ability labeled Avoidable / Situational / Unavoidable, based on top players. **Tanks** are judged by top tanks in the same fights instead, and abilities tanks almost always take while other roles almost never do (boss melee, tank busters) show as **"tank mechanic"** for them and never become findings. For DPS and healers those stay avoidable.
 
 The header shows **consumables for the pull**: combat potions, healthstones, and health and mana potions. They're counted from casts by name, because WCL's playerDetails potion and healthstone counts read 0 in current logs.
 

@@ -16,6 +16,10 @@ import {
   phaseSpans,
   reviewTimeline,
   similarLengthAmount,
+  tankAvoidability,
+  encounterAvoidability,
+  buildPlayerReport,
+  type PlayerMetrics,
   timelineBenchmark,
 } from "./index";
 
@@ -552,5 +556,47 @@ describe("AoE spells (RAI-4)", () => {
     // Two bosses (a council) isn't AoE, and a sliver of cleave on a third target doesn't count.
     expect(hitsSeveralTargets([{ total: 50 }, { total: 45 }, { total: 5 }])).toBe(false);
     expect(hitsSeveralTargets(undefined)).toBe(false);
+  });
+});
+
+describe("tank mechanics (RAI-8)", () => {
+  const MELEE = 1;
+  const BUSTER = 1237000; // e.g. Bloodvenom Injection
+  const PUDDLE = 1237001; // avoidable for everyone
+  const metrics = (dtps: Record<string, number>) =>
+    ({ actorId: 1, name: "x", specKey: "DeathKnight-Blood", durationMs: 300_000, activeTimePct: 1, cpm: {}, dtps, hits: {}, damageTakenPerSec: 0, targetShare: {}, deaths: 0, firstDeathMs: null }) as PlayerMetrics;
+  // 40 non-tanks: nobody takes the buster, 2 take some melee, 1 stands in the puddle.
+  const others = Array.from({ length: 40 }, (_, i) => metrics({ ...(i < 2 ? { [MELEE]: 500 } : {}), ...(i === 0 ? { [PUDDLE]: 100 } : {}) }));
+  // 12 tanks: all take melee and the buster; 1 stands in the puddle.
+  const tanks = Array.from({ length: 12 }, (_, i) => metrics({ [MELEE]: 20_000, [BUSTER]: 5000, ...(i === 0 ? { [PUDDLE]: 100 } : {}) }));
+  const nonTank = encounterAvoidability(others);
+  const forTanks = tankAvoidability(tanks, nonTank);
+
+  it("labels what only tanks take as a tank mechanic, and keeps puddles avoidable for tanks", () => {
+    expect(nonTank[MELEE]!.classification).toBe("avoidable");
+    expect(nonTank[BUSTER]).toBeUndefined();
+    expect(forTanks[MELEE]).toMatchObject({ classification: "tank-mechanic", zeroShare: 0 });
+    expect(forTanks[BUSTER]).toMatchObject({ classification: "tank-mechanic", zeroShare: 0 });
+    expect(forTanks[PUDDLE]!.classification).toBe("avoidable");
+    expect(tankAvoidability(tanks.slice(0, 5), nonTank)).toEqual({});
+  });
+
+  it("never turns a tank mechanic into a finding for a tank", () => {
+    const report = buildPlayerReport({
+      playerId: 7,
+      fightStartTime: 0,
+      raidSize: 20,
+      kill: true,
+      raidDeaths: [],
+      damageTaken: [
+        ...Array.from({ length: 50 }, (_, i) => ({ timestamp: i * 1000, type: "damage", abilityGameID: MELEE, amount: 50_000 })),
+        ...Array.from({ length: 20 }, (_, i) => ({ timestamp: i * 2000, type: "damage", abilityGameID: BUSTER, amount: 80_000 })),
+        { timestamp: 9000, type: "damage", abilityGameID: PUDDLE, amount: 30_000 },
+      ],
+      avoidability: Object.fromEntries(Object.entries(forTanks).map(([id, t]) => [id, { classification: t.classification, zeroShare: t.zeroShare }])),
+    });
+    expect(report.damageTaken.find((a) => a.abilityId === BUSTER)!.classification).toBe("tank-mechanic");
+    const flagged = report.findings.flatMap((f) => (f.kind === "avoidable-damage" ? [f.ability.abilityId] : []));
+    expect(flagged).toEqual([PUDDLE]);
   });
 });

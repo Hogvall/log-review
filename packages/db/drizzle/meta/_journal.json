@@ -43,6 +43,13 @@
       "when": 1791387707657,
       "tag": "0005_cool_ezekiel",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791411181213,
+      "tag": "0006_gray_whistler",
+      "breakpoints": true
     }
   ]
 }

@@ -10,12 +10,18 @@ const AVOIDABILITY: Record<Avoidability, { label: string; className: string; hel
   avoidable: { label: "avoidable", className: "text-dmg", help: "Most top players take no damage from this." },
   situational: { label: "situational", className: "text-warn", help: "Some top players take it: a soak, or role/position dependent." },
   unavoidable: { label: "unavoidable", className: "text-faint", help: "Almost everyone takes it. Survive it with defensives and healing." },
+  "tank-mechanic": {
+    label: "tank mechanic",
+    className: "text-faint",
+    help: "Tanks take this on purpose (boss melee, tank busters) and other roles don't. Not a mistake: use defensives for the big hits.",
+  },
 };
 
-export function AvoidabilityBadge({ value, zeroShare }: { value: Avoidability | null; zeroShare?: number | null }) {
+export function AvoidabilityBadge({ value, zeroShare, tank }: { value: Avoidability | null; zeroShare?: number | null; tank?: boolean }) {
   if (!value) return <span className="text-xs text-faint" title="No top-player data for this ability yet.">–</span>;
   const info = AVOIDABILITY[value];
-  const detail = zeroShare != null ? ` ${percent(zeroShare)} of top players took none.` : "";
+  // A tank's labels come from top tanks in the same fights.
+  const detail = zeroShare != null ? ` ${percent(zeroShare)} of top ${tank ? "tanks" : "players"} took none.` : "";
   return (
     <span className={`text-xs font-medium ${info.className}`} title={info.help + detail}>
       {info.label}

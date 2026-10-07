@@ -42,7 +42,7 @@ export const MIN_SAMPLE = 5;
  * Bump when benchmark aggregation changes (new fields, different math). The worker re-aggregates every
  * snapshot whose stored aggregation is older, so the site picks up the change without a new crawl.
  */
-export const BENCHMARK_VERSION = 3;
+export const BENCHMARK_VERSION = 4;
 
 /** Median-based benchmark for one spec on one boss and difficulty. */
 export function specBenchmark(
@@ -77,7 +77,13 @@ export function specBenchmark(
   };
 }
 
-export type Avoidability = "avoidable" | "situational" | "unavoidable";
+/**
+ * "tank-mechanic": tanks almost always take it and other roles almost never do (boss melee, tank busters).
+ * Only used for tanks; for everyone else such an ability is "avoidable".
+ */
+export type Avoidability = "avoidable" | "situational" | "unavoidable" | "tank-mechanic";
+/** What the data says for one cohort, before the tank-mechanic check. */
+export type BaseAvoidability = Exclude<Avoidability, "tank-mechanic">;
 
 export interface AbilityAvoidability {
   /** Share of players that took no damage from this ability. */
@@ -85,13 +91,13 @@ export interface AbilityAvoidability {
   /** Median damage per second among the players that did take it. */
   medianDtpsWhenHit: number;
   sampleSize: number;
-  classification: Avoidability;
+  classification: BaseAvoidability;
 }
 
 export const AVOIDABLE_ZERO_SHARE = 0.85;
 export const UNAVOIDABLE_ZERO_SHARE = 0.1;
 
-export function classifyAvoidability(zeroShare: number): Avoidability {
+export function classifyAvoidability(zeroShare: number): BaseAvoidability {
   if (zeroShare >= AVOIDABLE_ZERO_SHARE) return "avoidable";
   if (zeroShare <= UNAVOIDABLE_ZERO_SHARE) return "unavoidable";
   return "situational";
@@ -114,6 +120,43 @@ export function encounterAvoidability(players: PlayerMetrics[]): Record<string, 
       sampleSize: players.length,
       classification: classifyAvoidability(zeroShare),
     };
+  }
+  return out;
+}
+
+/** At most this share of tanks taking none (and at least AVOIDABLE_ZERO_SHARE of non-tanks) makes a tank mechanic. */
+export const TANK_MECHANIC_MAX_ZERO_SHARE = 0.1;
+/** Fewer tanks than this in the sample, and tank labels aren't computed (the site falls back to everyone's). */
+export const MIN_TANK_SAMPLE = 10;
+
+export interface TankAvoidability {
+  /** Share of tanks that took no damage from this ability. */
+  zeroShare: number;
+  sampleSize: number;
+  /** How avoidable it is for a tank; "tank-mechanic" when it's the tanks' job to take it. */
+  classification: Avoidability;
+}
+
+/**
+ * Avoidability from tanks' point of view, from the tanks in the same fights as `nonTank`. Tanks take boss
+ * melee and tank busters on purpose, so judging them by what DPS and healers avoid would tell a tank to
+ * dodge their own job.
+ */
+export function tankAvoidability(
+  tanks: PlayerMetrics[],
+  nonTank: Record<string, AbilityAvoidability>,
+): Record<string, TankAvoidability> {
+  if (tanks.length < MIN_TANK_SAMPLE) return {};
+  const abilities = new Set(tanks.flatMap((p) => Object.keys(p.dtps)));
+  const out: Record<string, TankAvoidability> = {};
+  for (const id of abilities) {
+    const hit = tanks.filter((p) => (p.dtps[id] ?? 0) > 0).length;
+    if (!hit) continue;
+    const zeroShare = 1 - hit / tanks.length;
+    // Abilities no non-tank took at all aren't in their map: nobody else takes them.
+    const othersZeroShare = nonTank[id]?.zeroShare ?? 1;
+    const tankMechanic = zeroShare <= TANK_MECHANIC_MAX_ZERO_SHARE && othersZeroShare >= AVOIDABLE_ZERO_SHARE;
+    out[id] = { zeroShare, sampleSize: tanks.length, classification: tankMechanic ? "tank-mechanic" : classifyAvoidability(zeroShare) };
   }
   return out;
 }

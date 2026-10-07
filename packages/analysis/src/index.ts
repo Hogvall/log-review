@@ -7,3 +7,4 @@ export * from "./player-report";
 export * from "./compare";
 export * from "./death-story";
 export * from "./defensives";
+export * from "./timeline";

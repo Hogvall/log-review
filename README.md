@@ -42,9 +42,13 @@ When the weekly snapshot has data for your spec on that boss, the report also co
 - **Rotation:** casts per minute of every ability that at least half of the top players use.
 - **Buffs:** uptime of your cooldowns. Procs and externals are shown separately, for context only.
 - **Targets:** your damage split across boss and adds.
-- **Cooldowns:** your cooldown casts on a timeline next to the #1 player's.
+- **Timeline:** the fight over time, next to the #1 player's kill:
+  - **Start of the pull:** spells you hardcast before the pull. WCL logs nothing before the pull, so a precast is a cast landing in the first 1.5s with no begincast, for a spell that has a cast time elsewhere in the fight.
+  - **Opener:** every cast in the first 30 seconds as icon strips, and when each cooldown and your combat potion were first used. Different combat potions count as the same. A cooldown #1 used in their opener that you pressed 8+ seconds later becomes a finding.
+  - **Through the fight:** casts per minute and idle time (4+ seconds without finishing a cast while alive) per boss phase, from WCL's phase transitions. Repeated phases are added together; bosses without phases are split into minutes. Your longest idle stretches are listed with timestamps. Idle time 10+ seconds (and 4% of your time alive) over #1's, scaled to your time alive, becomes a finding with an estimated DPS gain.
+  - **Cooldowns over the fight:** your cooldown casts on a timeline next to #1's.
 
-Findings include an **estimated DPS gain** where it can be computed: missed casts × your damage per cast, or downtime × your DPS. Only abilities that do damage, or cooldowns whose buff top players keep up ≥15% of the fight, become findings, so blinks, defensives and potions don't crowd them out. Healers are compared on casts and buffs only, because their rankings use healing.
+Findings include an **estimated DPS gain** where it can be computed: missed casts × your damage per cast, or downtime × your DPS. An ability is "low" when you're under the top players' 25th percentile and either under 85% of their median or the missed casts are worth 2%+ of your DPS (so a main nuke at 90% still counts). Only abilities that do damage, or cooldowns whose buff top players keep up ≥15% of the fight, become findings, so blinks, defensives and potions don't crowd them out. Healers are compared on casts and buffs only, because their rankings use healing.
 
 "Fix these first" ranks everything in one list: deaths that mattered, then DPS findings worth at least 3%, then repeated avoidable damage, then smaller DPS findings.
 
@@ -54,7 +58,7 @@ Deaths are grouped so that blame isn't unfair. When at least 25% of the raid (an
 - Deaths during the wipe are "probably not your fault".
 - Deaths after the wipe are ignored.
 
-Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline, plus 1 for your boss debuffs over the pull. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
+Each analysis costs about 7 WCL queries the first time (deaths, damage taken, players, casts, buffs, damage done and active time), plus 2 per death for the health and healing timeline, plus 1 for your boss debuffs over the pull, plus 1 a day per boss and spec for the #1 player's phase timings. The fetched data is cached in Postgres (`player_fight_cache`), so shared links are free. The analysis is recomputed on every view, so it picks up newer benchmarks.
 
 ## Weekly benchmark snapshot
 

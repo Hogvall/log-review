@@ -4,6 +4,7 @@ import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { BuffTable, CooldownTimeline, PerfFindingCard, RotationTable, TargetTable } from "@/components/performance";
 import { RememberCharacter } from "@/components/player-picker";
 import { DeathTimeline } from "@/components/death-timeline";
+import { Opener, PhaseActivityTable, PullStart } from "@/components/timeline";
 import { AvoidabilityBadge, DeathDetails, DeathsSummary, FindingCard, RaidDeathsTable } from "@/components/report";
 import { type Tab, Tabs } from "@/components/tabs";
 import { Ability, Breadcrumbs, Section, linkClass } from "@/components/ui";
@@ -50,6 +51,8 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
     tips,
     bossGuide,
     comparison,
+    timeline,
+    phases,
     fixes,
     abilities,
     names,
@@ -211,14 +214,30 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       content: comparison ? <TargetTable comparison={comparison} /> : <NoBenchmark />,
     },
     {
-      id: "cooldowns",
-      label: "Cooldowns",
-      content:
-        comparison && topPlayer ? (
-          <CooldownTimeline comparison={comparison} abilities={abilities} playerCasts={playerCasts} playerDurationMs={durationMs} top={topPlayer} />
-        ) : (
-          <NoBenchmark />
-        ),
+      id: "timeline",
+      label: "Timeline",
+      badge: badge(perfCount(["late-cooldown", "idle-time"])),
+      content: (
+        <div className="space-y-6">
+          {topPlayer ? (
+            <p className="text-sm text-muted">
+              Compared with <span className="text-fg">{topPlayer.name}</span>, the #1 player of your spec on this boss. One kill can
+              differ in strategy, so read gaps as something to check rather than a rule.
+            </p>
+          ) : (
+            <NoBenchmark />
+          )}
+          <PullStart timeline={timeline} abilities={abilities} />
+          <Opener timeline={timeline} abilities={abilities} topName={topPlayer?.name ?? null} />
+          <PhaseActivityTable timeline={timeline} phases={phases} />
+          {comparison && topPlayer && (
+            <div>
+              <h3 className="mb-2 font-medium text-fg">Cooldowns over the fight</h3>
+              <CooldownTimeline comparison={comparison} abilities={abilities} playerCasts={playerCasts} playerDurationMs={durationMs} top={topPlayer} />
+            </div>
+          )}
+        </div>
+      ),
     },
   ];
 

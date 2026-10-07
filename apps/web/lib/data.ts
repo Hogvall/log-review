@@ -11,7 +11,9 @@ import {
   type Fix,
   type PlayerReport,
   type RaidDeath,
+  type PhaseSpan,
   type SpecBenchmark,
+  type TimelineReview,
   aliveTime,
   buffUptimes,
   buildDeathStory,
@@ -19,7 +21,13 @@ import {
   compareToBenchmark,
   rankFixes,
   countConsumables,
+  findPrecasts,
+  OPENER_MS,
+  gainOf,
+  isCombatPotion,
+  phaseSpans,
   reviewDefensives,
+  reviewTimeline,
   roleOf,
 } from "@log-review/analysis";
 import { type AbilityTip, getAbilityTip, getBoss } from "@log-review/encounters";
@@ -36,6 +44,7 @@ import {
   ENEMY_SOURCES,
   type Fight,
   type PlayerDetails,
+  type WclEvent,
   type ReportOverview,
   getFightEvents,
   getFightTable,
@@ -67,6 +76,9 @@ export function getOverview(code: string) {
   return overviews(code, () => getReportOverview(getWcl(), code));
 }
 
+// Top players' reports are finished logs, so their phases can be kept for a day.
+const topOverviews = memo<ReportOverview>(24 * 60 * 60_000, 200);
+
 export async function getFight(code: string, fightId: number): Promise<{ report: ReportOverview; fight: Fight } | null> {
   const report = await getOverview(code);
   const fight = report.fights.find((f) => f.id === fightId);
@@ -82,6 +94,8 @@ interface PerfData {
   activeTimeMs: number;
   /** [fightTimeMs, abilityId] for every completed cast. */
   casts: [number, number][];
+  /** Spells hardcast before the pull. Added later; older cache rows are filled in on first view. */
+  precasts?: number[];
   damageByAbility: Record<string, number>;
   targetDamage: Record<string, number>;
   totalDamage: number;
@@ -200,11 +214,20 @@ async function fetchPerfData(code: string, fight: Fight, actorId: number): Promi
     casts: castEvents
       .filter((e) => e.type === "cast" && e.abilityGameID)
       .map((e) => [e.timestamp - fight.startTime, e.abilityGameID!]),
+    precasts: precastsOf(castEvents, fight),
     damageByAbility,
     targetDamage,
     totalDamage: Object.values(damageByAbility).reduce((a, b) => a + b, 0),
     buffUptime: buffUptimes(buffs.auras ?? [], durationMs),
   };
+}
+
+function precastsOf(castEvents: WclEvent[], fight: Fight): number[] {
+  return findPrecasts(
+    castEvents
+      .filter((e) => e.abilityGameID)
+      .map((e) => ({ fightTimeMs: e.timestamp - fight.startTime, type: e.type, abilityId: e.abilityGameID! })),
+  );
 }
 
 /** Deaths and this player's damage taken: 2–3 WCL queries the first time, free after that. */
@@ -218,7 +241,14 @@ async function getPlayerData(code: string, fight: Fight, actorId: number): Promi
   const [cached] = await db.select({ data: playerFightCache.data }).from(playerFightCache).where(key).limit(1);
   if (cached) {
     const data = cached.data as CachedPlayerData;
-    if (data.perf) return data;
+    if (data.perf?.precasts) return data;
+    if (data.perf) {
+      // Cached before precast detection: 1 query for the cast events.
+      const castEvents = await getFightEvents(getWcl(), code, fight, "Casts", { sourceID: actorId });
+      const filled = { ...data, perf: { ...data.perf, precasts: precastsOf(castEvents, fight) } };
+      await db.update(playerFightCache).set({ data: filled }).where(key);
+      return filled;
+    }
     const filled = { ...data, perf: await fetchPerfData(code, fight, actorId) };
     await db.update(playerFightCache).set({ data: filled }).where(key);
     return filled;
@@ -275,6 +305,21 @@ export interface TopPlayer {
   amount: number;
   durationMs: number;
   timeline: [number, number][];
+  /** Boss phases in the #1 player's fight; [] if the boss has none or their log couldn't be read. */
+  phases: PhaseSpan[];
+}
+
+/** The phases of a top player's fight: 1 WCL query per report, cached for a day. */
+async function getTopPhases(reportCode: string, fightId: number, durationMs: number): Promise<PhaseSpan[]> {
+  try {
+    const report = await topOverviews(reportCode, () => getReportOverview(getWcl(), reportCode));
+    const fight = report.fights.find((f) => f.id === fightId);
+    if (!fight) return [];
+    const names = report.phases.find((p) => p.encounterID === fight.encounterID)?.phases ?? [];
+    return phaseSpans(fight.phaseTransitions, fight.startTime, durationMs, names);
+  } catch {
+    return [];
+  }
 }
 
 /** The spec's benchmark from the newest snapshot that has one, plus the #1 player's cast timeline. */
@@ -298,6 +343,8 @@ async function getBenchmark(
       name: rankingEntries.name,
       amount: rankingEntries.amount,
       durationMs: rankingEntries.durationMs,
+      reportCode: rankingEntries.reportCode,
+      fightId: rankingEntries.fightId,
       timeline: playerMetrics.timeline,
     })
     .from(rankingEntries)
@@ -324,7 +371,15 @@ async function getBenchmark(
   return {
     benchmark: row.data as SpecBenchmark,
     week: row.week,
-    top: top?.timeline ? { ...top, timeline: top.timeline as [number, number][] } : null,
+    top: top?.timeline
+      ? {
+          name: top.name,
+          amount: top.amount,
+          durationMs: top.durationMs,
+          timeline: top.timeline as [number, number][],
+          phases: await getTopPhases(top.reportCode, top.fightId, top.durationMs),
+        }
+      : null,
   };
 }
 
@@ -343,6 +398,10 @@ export interface PlayerAnalysis {
   tips: Record<number, AbilityTip>;
   bossGuide: { name: string; url: string } | null;
   comparison: Comparison | null;
+  /** Precast, opener and activity per phase, vs the #1 player when we have their timeline. */
+  timeline: TimelineReview;
+  /** Boss phases in this pull ([] if the boss has none). */
+  phases: PhaseSpan[];
   /** Survival and DPS findings in one ranked list. */
   fixes: Fix[];
   benchmarkWeek: string | null;
@@ -391,16 +450,18 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
 
   const durationMs = fight.endTime - fight.startTime;
   const perf = data.perf!;
+  // Healers are benchmarked by HPS, so their DPS isn't comparable.
+  const amount = specKey && roleOf(specKey) !== "healer" ? perf.totalDamage / (durationMs / 1000) : null;
+  const aliveMs = aliveTime(
+    durationMs,
+    data.deaths.filter((d) => d.targetID === actorId).map((d) => d.timestamp - fight.startTime),
+  );
   const comparison = bench
     ? compareToBenchmark(
         {
-          // Healers are benchmarked by HPS, so their DPS isn't comparable.
-          amount: specKey && roleOf(specKey) !== "healer" ? perf.totalDamage / (durationMs / 1000) : null,
+          amount,
           durationMs,
-          aliveMs: aliveTime(
-            durationMs,
-            data.deaths.filter((d) => d.targetID === actorId).map((d) => d.timestamp - fight.startTime),
-          ),
+          aliveMs,
           itemLevel: detail?.maxItemLevel ?? null,
           activeTimeMs: perf.activeTimeMs,
           casts: countCasts(perf.casts),
@@ -412,16 +473,48 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
       )
     : null;
 
+  const top = bench?.top ?? null;
+  const topOpener = (top?.timeline ?? []).filter(([t]) => t <= OPENER_MS);
+
   const abilities: PlayerAnalysis["abilities"] = {};
   for (const a of report.abilities) abilities[a.gameID] = { name: a.name, icon: a.icon };
-  // Benchmark abilities you never used aren't in your report; look their names up from the crawler's data.
-  const missing = comparison
-    ? [...comparison.abilities, ...comparison.buffs].map((a) => a.abilityId).filter((id) => !abilities[id])
-    : [];
+  // Benchmark abilities (and #1's opener casts) you never used aren't in your report; look their names up from the crawler's data.
+  const missing = [
+    ...new Set([
+      ...(comparison ? [...comparison.abilities, ...comparison.buffs].map((a) => a.abilityId) : []),
+      ...topOpener.map(([, id]) => id),
+    ]),
+  ].filter((id) => !abilities[id]);
   if (missing.length) {
     const rows = await getDb().select().from(abilitiesTable).where(inArray(abilitiesTable.id, missing));
     for (const r of rows) abilities[r.id] = { name: r.name, icon: r.icon ?? "" };
   }
+
+  // Players use different combat potions; compare when the first one was drunk, whichever it was.
+  const potionIds = [...new Set([...perf.casts, ...topOpener].map(([, id]) => id))].filter(
+    (id) => abilities[id] && isCombatPotion(abilities[id]!.name, abilities[id]!.icon),
+  );
+  const phaseNames = report.phases.find((p) => p.encounterID === fight.encounterID)?.phases ?? [];
+  const phases = phaseSpans(fight.phaseTransitions, fight.startTime, durationMs, phaseNames);
+  const timeline = reviewTimeline({
+    casts: perf.casts,
+    precasts: perf.precasts ?? [],
+    durationMs,
+    aliveMs,
+    amount,
+    phases,
+    top: top ? { casts: top.timeline, durationMs: top.durationMs, phases: top.phases } : null,
+    // Cooldowns: abilities top players cast at most ~2 times a minute, plus the combat potion.
+    cooldownIds: [
+      ...(comparison?.abilities ?? []).filter((a) => a.benchmark.median > 0 && a.benchmark.median <= 2).map((a) => a.abilityId),
+      ...(comparison ? potionIds : []),
+    ],
+    equivalent: potionIds.length > 1 ? [potionIds] : [],
+  });
+  if (comparison && timeline.findings.length) {
+    comparison.findings = [...comparison.findings, ...timeline.findings].sort((x, y) => (gainOf(y) ?? -1) - (gainOf(x) ?? -1));
+  }
+
   // Defensives and consumables around each death. Names come from the report plus any benchmark lookups above.
   const abilityNames: Record<number, string> = {};
   for (const [id, a] of Object.entries(abilities)) abilityNames[Number(id)] = a.name;
@@ -477,6 +570,8 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     tips,
     bossGuide: boss?.guideUrl ? { name: boss.name, url: boss.guideUrl } : null,
     comparison,
+    timeline,
+    phases,
     fixes: rankFixes(analysis, comparison),
     benchmarkWeek: bench?.week ?? null,
     topPlayer: bench?.top ?? null,

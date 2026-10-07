@@ -12,6 +12,13 @@ export interface Fight {
   startTime: number;
   endTime: number;
   friendlyPlayers: number[] | null;
+  /** Boss phase changes, report-relative. A phase can repeat (e.g. alternating stage and intermission). */
+  phaseTransitions: { id: number; startTime: number }[] | null;
+}
+
+export interface EncounterPhases {
+  encounterID: number;
+  phases: { id: number; name: string; isIntermission: boolean | null }[];
 }
 
 export interface PlayerActor {
@@ -35,6 +42,8 @@ export interface ReportOverview {
   fights: Fight[];
   players: PlayerActor[];
   abilities: Ability[];
+  /** Phase names per boss, for reading `phaseTransitions`. */
+  phases: EncounterPhases[];
 }
 
 const REPORT_OVERVIEW = /* GraphQL */ `
@@ -46,7 +55,9 @@ const REPORT_OVERVIEW = /* GraphQL */ `
         zone { id name }
         fights(killType: Encounters) {
           id encounterID name difficulty kill bossPercentage startTime endTime friendlyPlayers
+          phaseTransitions { id startTime }
         }
+        phases { encounterID phases { id name isIntermission } }
         masterData {
           actors(type: "Player") { id name server subType }
           abilities { gameID name icon }
@@ -66,6 +77,7 @@ export async function getReportOverview(client: WclQuerier, code: string): Promi
         zone: ReportOverview["zone"];
         fights: Fight[];
         masterData: { actors: PlayerActor[]; abilities: Ability[] };
+        phases: EncounterPhases[] | null;
       } | null;
     };
   }>(REPORT_OVERVIEW, { code });
@@ -79,6 +91,7 @@ export async function getReportOverview(client: WclQuerier, code: string): Promi
     fights: report.fights,
     players: report.masterData.actors,
     abilities: report.masterData.abilities,
+    phases: report.phases ?? [],
   };
 }
 

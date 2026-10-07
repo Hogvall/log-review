@@ -98,7 +98,7 @@ const NOT_COMBAT_POTION = /(flask|phial|elixir|tonic|cauldron|recycle|create|hea
  * "Light's Potential"), so the icon counts too: potion icons are named like "…lightpotion…" or "inv_potion_…".
  * Some flasks use potion icons, which is why flasks and similar are excluded by name.
  */
-const isCombatPotion = (name: string, icon = "") =>
+export const isCombatPotion = (name: string, icon = "") =>
   /(potion|draught)/i.test(`${name} ${icon}`) && !isHealthPotion(name) && !isManaPotion(name) && !NOT_COMBAT_POTION.test(name);
 
 export interface ConsumableCounts {

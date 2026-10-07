@@ -91,6 +91,22 @@ export function PerfFindingCard({
         "Use it more often and avoid wasting it during downtime.",
       );
     }
+    case "late-cooldown":
+      return card(
+        <>Late {ability(finding.abilityId)} in the opener</>,
+        `First used at ${(finding.playerMs / 1000).toFixed(1)}s; the #1 player pressed it at ${(finding.topMs / 1000).toFixed(1)}s.`,
+        null,
+        "Use it in your opener unless you're holding it for something specific; a delayed first use can cost a whole cast over the fight.",
+      );
+    case "idle-time":
+      return card(
+        "Long stretches without casting",
+        `${Math.round(finding.playerMs / 1000)}s idle vs ${Math.round(finding.topMs / 1000)}s for #1; longest: ${finding.longest
+          .map((g) => `${fightTime(g.startMs)} (${Math.round((g.endMs - g.startMs) / 1000)}s)`)
+          .join(", ")}.`,
+        finding.estDpsGain,
+        "Check the Timeline tab for when it happened; keep casting through movement and mechanics where you can.",
+      );
     case "low-target-share": {
       const t = finding.target;
       return card(

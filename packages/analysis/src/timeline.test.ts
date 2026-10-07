@@ -6,6 +6,7 @@ import {
   castGaps,
   compareToBenchmark,
   findPrecasts,
+  isUtilitySpell,
   minuteSpans,
   phaseSpans,
   reviewTimeline,
@@ -330,5 +331,7 @@ describe("compareToBenchmark: utility and tiny gains", () => {
     const ids = c.findings.flatMap((f) => (f.kind === "low-casts" ? [f.ability.abilityId] : []));
     expect(ids).toContain(PYRO);
     expect(ids).not.toContain(RETREAT); // ~+20 dps
+    expect(isUtilitySpell("Glide")).toBe(true);
+    expect(isUtilitySpell("Eye Beam")).toBe(false);
   });
 });

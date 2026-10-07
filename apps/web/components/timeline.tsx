@@ -1,4 +1,4 @@
-import { type CastMark, type PhaseSpan, type TimelineReview, activityCpm, activityIdleShare } from "@log-review/analysis";
+import { type CastMark, type TimelineReview, activityCpm, activityIdleShare } from "@log-review/analysis";
 import type { AbilityInfo } from "./report";
 import { Ability } from "./ui";
 import { abilityIconUrl, fightTime, percent, wowheadSpellUrl } from "@/lib/format";
@@ -173,11 +173,10 @@ export function Opener({ timeline, abilities, topName }: { timeline: TimelineRev
 const secsOrClock = (ms: number) => (ms < 60_000 ? secs(ms) : fightTime(ms));
 
 /** Casts per minute and idle time in each boss phase (or minute): you vs top players' median, or #1 without one. */
-export function PhaseActivityTable({ timeline, phases }: { timeline: TimelineReview; phases: PhaseSpan[] }) {
+export function PhaseActivityTable({ timeline }: { timeline: TimelineReview }) {
   const hasMedian = timeline.phases.some((p) => p.median);
   const hasTop = hasMedian || timeline.phases.some((p) => p.top);
   const topLabel = hasMedian ? "Top" : "#1";
-  const phaseOf = (ms: number) => phases.find((p) => ms >= p.startMs && ms < p.endMs)?.name;
   const longest = [...timeline.gaps].sort((a, b) => b.endMs - b.startMs - (a.endMs - a.startMs)).slice(0, 5);
   return (
     <div>
@@ -249,7 +248,7 @@ export function PhaseActivityTable({ timeline, phases }: { timeline: TimelineRev
       {longest.length > 0 && (
         <ul className="mt-1 text-sm">
           {longest.map((g) => {
-            const phase = timeline.byPhase ? phaseOf(g.startMs) : null;
+            const phase = g.phase;
             return (
               <li key={g.startMs} className="num flex gap-3 border-b border-line/40 py-1">
                 <span className="w-24 text-fg/85">

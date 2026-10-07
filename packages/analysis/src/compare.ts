@@ -86,6 +86,15 @@ const MISSING_USED_BY = 0.8;
  * Movement spells, defensives and potions sit lower, so they stay out of the findings.
  */
 const IMPACTFUL_BUFF_UPTIME = 0.15;
+/** Estimated gains below this share of your DPS are too small to be worth a finding. */
+const MIN_FINDING_GAIN_SHARE = 0.005;
+
+export interface CompareOptions {
+  /** Movement, defensives, raid utility and consumables: shown in tables, never DPS findings. */
+  utilityIds?: Set<number>;
+  /** Left out of the tables entirely (e.g. Bloodlust, which one player casts for the raid). */
+  hiddenIds?: Set<number>;
+}
 
 function status(player: number, b: KeyedSummary, minGap: (median: number) => boolean): Status {
   if (player === 0 && b.median > 0) return "missing";
@@ -94,12 +103,15 @@ function status(player: number, b: KeyedSummary, minGap: (median: number) => boo
   return "ok";
 }
 
-export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark): Comparison {
+export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts: CompareOptions = {}): Comparison {
+  const utility = opts.utilityIds ?? new Set<number>();
+  const hidden = opts.hiddenIds ?? new Set<number>();
   const aliveMin = p.aliveMs / 60_000;
   const durationSec = p.durationMs / 1000;
   const activeTime = p.aliveMs ? p.activeTimeMs / p.aliveMs : 0;
 
   const abilities: AbilityComparison[] = Object.entries(b.cpm)
+    .filter(([id]) => !hidden.has(Number(id)))
     .map(([id, bench]) => {
       const casts = p.casts[id] ?? 0;
       const playerCpm = aliveMin ? casts / aliveMin : 0;
@@ -140,8 +152,12 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark): Comp
     .sort((x, y) => y.benchmark.median - x.benchmark.median);
 
   // Only abilities that clearly affect output become findings; the rest is still shown in the tables.
-  const impactful = (a: AbilityComparison) =>
-    a.estDpsGain != null || (b.buffUptime[a.abilityId]?.median ?? 0) >= IMPACTFUL_BUFF_UPTIME;
+  const impactful = (a: AbilityComparison) => {
+    if (utility.has(a.abilityId)) return false;
+    // Cooldowns whose buff matters count even when the cast itself does little damage.
+    if ((b.buffUptime[a.abilityId]?.median ?? 0) >= IMPACTFUL_BUFF_UPTIME) return true;
+    return a.estDpsGain != null && (!p.amount || a.estDpsGain >= p.amount * MIN_FINDING_GAIN_SHARE);
+  };
 
   const findings: PerfFinding[] = [];
   if (activeTime < b.activeTimePct.p25 && b.activeTimePct.median - activeTime >= LOW_ACTIVE_GAP) {
@@ -153,7 +169,7 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark): Comp
     if (ability.status === "missing") findings.push({ kind: "missing-ability", ability });
     else if (ability.status === "low") findings.push({ kind: "low-casts", ability });
   }
-  for (const buff of buffs) if (buff.selfCast && buff.status === "low") findings.push({ kind: "low-buff-uptime", buff });
+  for (const buff of buffs) if (buff.selfCast && buff.status === "low" && !utility.has(buff.abilityId)) findings.push({ kind: "low-buff-uptime", buff });
   for (const target of targets) if (target.status === "low" || target.status === "missing") findings.push({ kind: "low-target-share", target });
   findings.sort((x, y) => (gainOf(y) ?? -1) - (gainOf(x) ?? -1));
 

@@ -230,6 +230,7 @@ export function RaidDeathsTable({
   classes,
   abilities,
   kill,
+  wipe,
 }: {
   deaths: ClassifiedDeath[];
   playerId: number;
@@ -237,12 +238,27 @@ export function RaidDeathsTable({
   classes: Record<number, string>;
   abilities: AbilityInfo;
   kill: boolean;
+  wipe: WipeEvent | null;
 }) {
   if (!deaths.length) return null;
-  // Show everything before the wipe, the start of the wipe, and your own deaths; fold the rest.
-  const shown = deaths.filter((d) => d.category === "early" || d.category === "wipe-start" || d.targetID === playerId);
-  const folded = deaths.filter((d) => !shown.includes(d));
-  const row = (d: ClassifiedDeath) => {
+  const firstWipe = deaths.find((d) => d.category === "wipe-start" || d.category === "wipe");
+  const firstAfter = deaths.find((d) => d.category === "after-wipe");
+  // A thin labeled row where the wipe starts and where it ends, so the full list still reads in phases.
+  const divider = (key: string, label: string) => (
+    <tr key={key}>
+      <td colSpan={5} className="pt-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.07em] text-dmg/80">
+        {label}
+      </td>
+    </tr>
+  );
+  const rows = deaths.flatMap((d) => [
+    ...(d === firstWipe && wipe
+      ? [divider("wipe", `Wipe · ${wipe.deaths} deaths, ${fightTime(wipe.startMs)}–${fightTime(wipe.endMs)}`)]
+      : []),
+    ...(d === firstAfter ? [divider("after", "After the wipe")] : []),
+    row(d),
+  ]);
+  function row(d: ClassifiedDeath) {
     const isMe = d.targetID === playerId;
     const id = d.killingAbilityGameID;
     const phase = d.category === "early" && kill ? { label: "before kill", className: "text-dmg" } : PHASE[d.category];
@@ -260,7 +276,7 @@ export function RaidDeathsTable({
         <td className={`py-1 text-xs ${phase.className}`}>{phase.label}</td>
       </tr>
     );
-  };
+  }
   const head = (
     <thead className="text-left text-[11px] uppercase tracking-[0.07em] text-faint">
       <tr className="border-b border-line">
@@ -273,24 +289,11 @@ export function RaidDeathsTable({
     </thead>
   );
   return (
-    <div id="raid-deaths" className="scroll-mt-6">
-      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <table className="w-full min-w-[480px] text-sm">
-          {head}
-          <tbody>{shown.map(row)}</tbody>
-        </table>
-      </div>
-      {folded.length > 0 && (
-        <details className="mt-1.5">
-          <summary className="cursor-pointer text-xs text-muted hover:text-fg">{folded.length} more deaths in and after the wipe</summary>
-          <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-            <table className="w-full min-w-[480px] text-sm">
-              {head}
-              <tbody>{folded.map(row)}</tbody>
-            </table>
-          </div>
-        </details>
-      )}
+    <div id="raid-deaths" className="scroll-mt-6 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <table className="w-full min-w-[480px] text-sm">
+        {head}
+        <tbody>{rows}</tbody>
+      </table>
     </div>
   );
 }

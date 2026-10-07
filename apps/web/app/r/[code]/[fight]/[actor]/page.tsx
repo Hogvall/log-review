@@ -106,6 +106,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
               classes={classes}
               abilities={abilities}
               kill={!!fight.kill}
+              wipe={analysis.wipe}
             />
           </div>
           <div className="mt-4">

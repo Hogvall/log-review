@@ -155,6 +155,28 @@ export async function getFightEvents(
   return events;
 }
 
+/** All events of one type across several fights (e.g. every death of a night), following WCL's pagination. */
+export async function getEventsForFights(
+  client: WclQuerier,
+  code: string,
+  fights: Pick<Fight, "id" | "startTime" | "endTime">[],
+  dataType: EventDataType,
+): Promise<WclEvent[]> {
+  if (!fights.length) return [];
+  const events: WclEvent[] = [];
+  const endTime = Math.max(...fights.map((f) => f.endTime));
+  let startTime: number | null = Math.min(...fights.map((f) => f.startTime));
+  while (startTime !== null) {
+    const data: {
+      reportData: { report: { events: { data: WclEvent[]; nextPageTimestamp: number | null } } };
+    } = await client.query(EVENTS, { code, fightIDs: fights.map((f) => f.id), dataType, startTime, endTime });
+    const page = data.reportData.report.events;
+    events.push(...page.data);
+    startTime = page.nextPageTimestamp;
+  }
+  return events;
+}
+
 const RATE_LIMIT = /* GraphQL */ `
   query { rateLimitData { limitPerHour pointsSpentThisHour pointsResetIn } }
 `;

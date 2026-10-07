@@ -110,3 +110,14 @@ export async function getFightTable<T>(
   );
   return data.reportData.report.table.data;
 }
+
+/** A WCL summary table over several fights at once (e.g. a whole night of pulls). Deaths tables stop at 200 entries. */
+export async function getTableForFights<T>(client: WclQuerier, code: string, fightIds: number[], dataType: TableDataType): Promise<T> {
+  const data = await client.query<{ reportData: { report: { table: { data: T } } } }>(
+    `query($code: String!, $fightIDs: [Int]!, $dataType: TableDataType!) {
+      reportData { report(code: $code) { table(fightIDs: $fightIDs, dataType: $dataType) } }
+    }`,
+    { code, fightIDs: fightIds, dataType },
+  );
+  return data.reportData.report.table.data;
+}

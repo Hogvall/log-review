@@ -39,7 +39,7 @@ The header shows **consumables for the pull**: combat potions, healthstones, and
 
 When the weekly snapshot has data for your spec on that boss, the report also compares you with the **top 15** (medians, with the middle half shown as a range):
 - **Header:** DPS vs the median, time spent casting, item level and fight length (top players usually have better gear and shorter kills).
-- **Rotation:** casts per minute of every ability that at least half of the top players use.
+- **Rotation:** casts per minute of every ability that at least half of the top players use, with how far you are from the top median ("−9%"). Only falling short is colored ("fewer", "not used"). "More" is neutral: casting a spell more than top players usually means it's replacing a stronger one, and when a rotational spell is cast more while another is cast less, the table says so ("Arcane Shot +107% while Aimed Shot −9%: Arcane Shot is probably taking its place"). Utility spells show as "situational". **Execute spells** (Kill Shot, Execute, Shadow Word: Death, Soul Reaper, Touch of Death, Hammer of Wrath, …) show "boss health" and are never judged or used as opener cooldowns, since how often they can be cast depends on how long the boss spent at low health.
 - **Buffs:** uptime of your cooldowns. Procs and externals are shown separately, for context only.
 - **Targets:** your damage split across boss and adds.
 - **Timeline:** the fight over time, compared with the top players' medians (and the #1 player's kill for reference; only #1 for snapshots without timeline medians):

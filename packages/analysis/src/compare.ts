@@ -21,10 +21,16 @@ export interface PlayerPerformance {
   targetShare: Record<string, number>;
 }
 
-export type Status = "low" | "ok" | "high" | "missing";
+/** "execute": depends on how long the boss spent at low health, so it isn't judged. */
+export type Status = "low" | "ok" | "high" | "missing" | "execute";
+
+/** What kind of spell a rotation row is, which decides how it's judged. */
+export type AbilityRole = "damage" | "utility" | "execute";
 
 export interface AbilityComparison {
   abilityId: number;
+  /** Utility (movement, defensives, consumables) is shown but never a finding; executes aren't judged. */
+  role: AbilityRole;
   playerCpm: number;
   benchmark: KeyedSummary;
   status: Status;
@@ -94,6 +100,8 @@ export interface CompareOptions {
   utilityIds?: Set<number>;
   /** Left out of the tables entirely (e.g. Bloodlust, which one player casts for the raid). */
   hiddenIds?: Set<number>;
+  /** Execute spells: their cast rate depends on boss health, so they're never judged. */
+  executeIds?: Set<number>;
 }
 
 function status(player: number, b: KeyedSummary, minGap: (median: number) => boolean): Status {
@@ -106,6 +114,7 @@ function status(player: number, b: KeyedSummary, minGap: (median: number) => boo
 export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts: CompareOptions = {}): Comparison {
   const utility = opts.utilityIds ?? new Set<number>();
   const hidden = opts.hiddenIds ?? new Set<number>();
+  const executes = opts.executeIds ?? new Set<number>();
   const aliveMin = p.aliveMs / 60_000;
   const durationSec = p.durationMs / 1000;
   const activeTime = p.aliveMs ? p.activeTimeMs / p.aliveMs : 0;
@@ -119,10 +128,11 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
       const missedCasts = Math.max(0, (bench.median - playerCpm) * aliveMin);
       const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
       const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
-      let s = status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO || bigGain);
+      const role: AbilityRole = executes.has(Number(id)) ? "execute" : utility.has(Number(id)) ? "utility" : "damage";
+      let s: Status = role === "execute" ? "execute" : status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO || bigGain);
       if (s === "missing" && bench.usedBy < MISSING_USED_BY) s = "low";
       const estDpsGain = (s === "low" || s === "missing") && gain > 0 ? gain : null;
-      return { abilityId: Number(id), playerCpm, benchmark: bench, status: s, estDpsGain };
+      return { abilityId: Number(id), role, playerCpm, benchmark: bench, status: s, estDpsGain };
     })
     .sort((x, y) => y.benchmark.median - x.benchmark.median);
 
@@ -153,7 +163,7 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
 
   // Only abilities that clearly affect output become findings; the rest is still shown in the tables.
   const impactful = (a: AbilityComparison) => {
-    if (utility.has(a.abilityId)) return false;
+    if (a.role !== "damage") return false;
     // Cooldowns whose buff matters count even when the cast itself does little damage.
     if ((b.buffUptime[a.abilityId]?.median ?? 0) >= IMPACTFUL_BUFF_UPTIME) return true;
     return a.estDpsGain != null && (!p.amount || a.estDpsGain >= p.amount * MIN_FINDING_GAIN_SHARE);

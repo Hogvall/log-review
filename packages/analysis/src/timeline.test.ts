@@ -6,6 +6,7 @@ import {
   castGaps,
   compareToBenchmark,
   findPrecasts,
+  isExecuteSpell,
   isUtilitySpell,
   minuteSpans,
   phaseSpans,
@@ -333,5 +334,25 @@ describe("compareToBenchmark: utility and tiny gains", () => {
     expect(ids).not.toContain(RETREAT); // ~+20 dps
     expect(isUtilitySpell("Glide")).toBe(true);
     expect(isUtilitySpell("Eye Beam")).toBe(false);
+  });
+});
+
+describe("compareToBenchmark: executes", () => {
+  const KILL_SHOT = 53351;
+  const s = (median: number) => ({ median, p25: median * 0.9, p75: median * 1.1, n: 15, usedBy: 1 });
+  const bench: SpecBenchmark = {
+    sampleSize: 15, insufficient: false, amount: s(270_000), durationMs: s(332_000), itemLevel: s(328), activeTimePct: s(1),
+    cpm: { [KILL_SHOT]: s(1.2) }, buffUptime: {}, dtps: {}, targetShare: {}, deathRate: 0,
+  };
+  it("never judges an execute: a wipe before the execute phase isn't a rotation problem", () => {
+    // Aomine: 3 Kill Shots in a 7:12 wipe vs 1.2/min in kills.
+    const c = compareToBenchmark(
+      { amount: 193_700, durationMs: 432_000, aliveMs: 420_000, itemLevel: 328, activeTimeMs: 400_000, casts: { [KILL_SHOT]: 3 }, damageByAbility: { [KILL_SHOT]: 3_000_000 }, buffUptime: {}, targetShare: {} },
+      bench,
+      { executeIds: new Set([KILL_SHOT]) },
+    );
+    expect(c.abilities[0]).toMatchObject({ role: "execute", status: "execute", estDpsGain: null });
+    expect(c.findings).toEqual([]);
+    expect(isExecuteSpell("Kill Shot")).toBe(true);
   });
 });

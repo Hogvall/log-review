@@ -3,16 +3,42 @@ import { type AbilityInfo, IssueRow } from "./report";
 import { Ability } from "./ui";
 import { compact, fightTime, percent } from "@/lib/format";
 
-const STATUS: Record<Status, { label: string; className: string }> = {
-  low: { label: "low", className: "text-dmg" },
+/**
+ * Labels say how you compare, not whether it's good: only falling short is colored. Casting something
+ * more than top players isn't better by itself (it often replaces a stronger spell), so "more" is neutral.
+ */
+const STATUS: Record<Status, { label: string; className: string; title?: string }> = {
+  low: { label: "fewer", className: "text-dmg" },
   missing: { label: "not used", className: "text-dmg" },
-  ok: { label: "ok", className: "text-faint" },
-  high: { label: "high", className: "text-shield" },
+  ok: { label: "in line", className: "text-faint" },
+  high: {
+    label: "more",
+    className: "text-muted",
+    title: "More than top players. That isn't better by itself: it can mean this spell is taking the place of a stronger one.",
+  },
+  execute: {
+    label: "boss health",
+    className: "text-faint",
+    title: "An execute: how often you can cast it depends on how long the boss spent at low health, so it isn't judged.",
+  },
 };
 
-export function StatusBadge({ status }: { status: Status }) {
-  const s = STATUS[status];
-  return <span className={`text-xs font-medium ${s.className}`}>{s.label}</span>;
+/** Uptime and target share read better as "lower/higher" than "fewer/more". */
+const SHARE_LABELS: Partial<Record<Status, string>> = { low: "lower", high: "higher" };
+
+const signedPercent = (diff: number) => `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${Math.abs(Math.round(diff * 100))}%`;
+
+export function StatusBadge({ status, diff, share, situational }: { status: Status; diff?: number | null; share?: boolean; situational?: boolean }) {
+  const s = situational
+    ? { label: "situational", className: "text-faint", title: "Movement, defensives and consumables depend on the fight, so they aren't judged." }
+    : STATUS[status];
+  const label = (!situational && share && SHARE_LABELS[status]) || s.label;
+  return (
+    <span className="whitespace-nowrap text-xs" title={s.title}>
+      <span className={`font-medium ${s.className}`}>{label}</span>
+      {diff != null && Number.isFinite(diff) && Math.abs(diff) >= 0.005 && <span className="num ml-1.5 text-faint">{signedPercent(diff)}</span>}
+    </span>
+  );
 }
 
 const perMin = (n: number) => `${n.toFixed(n < 2 ? 2 : 1)}/min`;
@@ -164,6 +190,14 @@ function onePerName<T extends { abilityId: number; benchmark: { median: number }
 
 export function RotationTable({ comparison, abilities }: { comparison: Comparison; abilities: AbilityInfo }) {
   const rows: AbilityComparison[] = onePerName(comparison.abilities, abilities);
+  const ability = (id: number) => <Ability id={id} name={abilities[id]?.name} icon={abilities[id]?.icon} />;
+  const diffOf = (a: AbilityComparison) => (a.benchmark.median ? a.playerCpm / a.benchmark.median - 1 : 0);
+  // A rotational spell cast more while another is cast less: the extra casts are likely replacing it.
+  const rotational = (a: AbilityComparison) => a.role === "damage" && a.benchmark.median >= 2;
+  const lows = rows.filter((a) => rotational(a) && (a.status === "low" || a.status === "missing"));
+  const tradeoffs = lows.length
+    ? rows.filter((a) => rotational(a) && a.status === "high").slice(0, 2).map((high) => ({ high, lows: lows.slice(0, 3) }))
+    : [];
   return (
     <div>
       <RangeLegend />
@@ -175,7 +209,7 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
               <th className="px-2 py-2 text-right font-medium">You</th>
               <th className="px-2 py-2 text-right font-medium">Top</th>
               <th className="w-40 px-2 py-2 font-medium" />
-              <th className="px-4 py-2 font-medium sm:pr-0">Status</th>
+              <th className="px-4 py-2 font-medium sm:pr-0">vs top</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-line">
@@ -203,7 +237,11 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
                     <RangeBar player={a.playerCpm} p25={a.benchmark.p25} median={a.benchmark.median} p75={a.benchmark.p75} max={max} />
                   </td>
                   <td className="px-4 py-2 sm:pr-0">
-                    <StatusBadge status={a.status} />
+                    <StatusBadge
+                      status={a.status}
+                      diff={a.status === "execute" || !a.benchmark.median ? null : a.playerCpm / a.benchmark.median - 1}
+                      situational={a.role === "utility"}
+                    />
                   </td>
                 </tr>
               );
@@ -211,8 +249,27 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
           </tbody>
         </table>
       </div>
+      {tradeoffs.length > 0 && (
+        <div className="mt-3 space-y-1 border-l-2 border-warn pl-3 text-sm text-fg/85">
+          {tradeoffs.map(({ high, lows }) => (
+            <p key={high.abilityId}>
+              {ability(high.abilityId)} <span className="num text-muted">{signedPercent(diffOf(high))}</span> while{" "}
+              {lows.map((l, i) => (
+                <span key={l.abilityId}>
+                  {i > 0 && (i === lows.length - 1 ? " and " : ", ")}
+                  {ability(l.abilityId)} <span className="num text-dmg">{signedPercent(diffOf(l))}</span>
+                </span>
+              ))}
+              : {abilities[high.abilityId]?.name ?? "it"} is probably taking {lows.length > 1 ? "their" : "its"} place in your rotation.
+            </p>
+          ))}
+        </div>
+      )}
       <p className="mt-3 text-xs text-faint">
-        Casts per minute while you were alive. Only abilities that at least half of the top players use are shown.
+        Casts per minute while you were alive. Only abilities that at least half of the top players use are shown. More isn't
+        better: top players cast what their rotation needs, so casting a spell more than them usually means it's replacing a
+        stronger one. Movement, defensives and consumables are situational and executes depend on boss health, so those aren't
+        judged.
       </p>
     </div>
   );
@@ -233,14 +290,16 @@ export function BuffTable({ comparison, abilities }: { comparison: Comparison; a
             {g.note && <p className="text-xs text-faint">{g.note}</p>}
             <ul className="mt-2 divide-y divide-line">
               {g.rows.map((b) => (
-                <li key={b.abilityId} className="grid grid-cols-[minmax(0,1fr)_4rem_8rem] items-center gap-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_4rem_4rem_10rem_5rem]">
+                <li key={b.abilityId} className="grid grid-cols-[minmax(0,1fr)_4rem_8rem] items-center gap-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_4rem_4rem_10rem_7rem]">
                   <span className="truncate">
                     <Ability id={b.abilityId} name={abilities[b.abilityId]?.name} icon={abilities[b.abilityId]?.icon} />
                   </span>
                   <span className="text-right">{percent(b.player)}</span>
                   <span className="hidden text-right text-muted sm:block">{percent(b.benchmark.median)}</span>
                   <RangeBar player={b.player} p25={b.benchmark.p25} median={b.benchmark.median} p75={b.benchmark.p75} max={1} />
-                  <span className="hidden sm:block">{gi === 0 && <StatusBadge status={b.status} />}</span>
+                  <span className="hidden sm:block">
+                    {gi === 0 && <StatusBadge status={b.status} share diff={b.benchmark.median ? b.player / b.benchmark.median - 1 : null} />}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -258,7 +317,7 @@ export function TargetTable({ comparison }: { comparison: Comparison }) {
       <RangeLegend />
       <ul className="divide-y divide-line">
         {comparison.targets.map((t, i) => (
-          <li key={t.target} className="grid grid-cols-[minmax(0,1fr)_4rem_8rem] items-center gap-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_4rem_4rem_10rem_5rem]">
+          <li key={t.target} className="grid grid-cols-[minmax(0,1fr)_4rem_8rem] items-center gap-3 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_4rem_4rem_10rem_7rem]">
             <span className="truncate text-fg">
               {t.target} {i === 0 && <span className="text-xs text-faint">(main target)</span>}
             </span>
@@ -266,7 +325,7 @@ export function TargetTable({ comparison }: { comparison: Comparison }) {
             <span className="hidden text-right text-muted sm:block">{percent(t.benchmark.median)}</span>
             <RangeBar player={t.player} p25={t.benchmark.p25} median={t.benchmark.median} p75={t.benchmark.p75} max={1} />
             <span className="hidden sm:block">
-              <StatusBadge status={t.status} />
+              <StatusBadge status={t.status} share diff={t.benchmark.median ? t.player / t.benchmark.median - 1 : null} />
             </span>
           </li>
         ))}

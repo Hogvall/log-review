@@ -26,6 +26,7 @@ import {
   gainOf,
   isCombatPotion,
   isCooldownCpm,
+  isExecuteSpell,
   isRaidUtility,
   isUtilitySpell,
   phaseSpans,
@@ -488,6 +489,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   const named = Object.entries(abilities).map(([id, a]) => [Number(id), a] as const);
   const utilityIds = new Set(named.filter(([, a]) => isUtilitySpell(a.name, a.icon)).map(([id]) => id));
   const hiddenIds = new Set(named.filter(([, a]) => isRaidUtility(a.name)).map(([id]) => id));
+  const executeIds = new Set(named.filter(([, a]) => isExecuteSpell(a.name)).map(([id]) => id));
 
   const comparison = bench
     ? compareToBenchmark(
@@ -503,7 +505,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
           targetShare: shares(perf.targetDamage, perf.totalDamage),
         },
         bench.benchmark,
-        { utilityIds, hiddenIds },
+        { utilityIds, hiddenIds, executeIds },
       )
     : null;
 
@@ -513,7 +515,8 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   );
   // DPS cooldowns: cast at most ~2 times a minute by top players, not movement, defensives or utility.
   // Defensives depend on the fight's damage, so their timing says nothing about the rotation.
-  const dpsCooldowns = (comparison?.abilities ?? []).filter((a) => isCooldownCpm(a.benchmark) && !utilityIds.has(a.abilityId));
+  // Executes are left out too: when they become usable depends on boss health.
+  const dpsCooldowns = (comparison?.abilities ?? []).filter((a) => isCooldownCpm(a.benchmark) && a.role === "damage");
   const phaseNames = report.phases.find((p) => p.encounterID === fight.encounterID)?.phases ?? [];
   const phases = phaseSpans(fight.phaseTransitions, fight.startTime, durationMs, phaseNames);
   const timeline = reviewTimeline({

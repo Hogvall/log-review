@@ -417,6 +417,8 @@ export interface PlayerAnalysis {
   benchmarkWeek: string | null;
   topPlayer: TopPlayer | null;
   playerCasts: [number, number][];
+  /** DPS cooldowns (and the combat potion) for the cooldown chart; no defensives or movement. */
+  cooldownIds: number[];
   snapshotWeek: string | null;
   abilities: Record<number, { name: string; icon: string }>;
   names: Record<number, string>;
@@ -509,6 +511,9 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   const potionIds = [...new Set([...perf.casts, ...topOpener].map(([, id]) => id))].filter(
     (id) => abilities[id] && isCombatPotion(abilities[id]!.name, abilities[id]!.icon),
   );
+  // DPS cooldowns: cast at most ~2 times a minute by top players, not movement, defensives or utility.
+  // Defensives depend on the fight's damage, so their timing says nothing about the rotation.
+  const dpsCooldowns = (comparison?.abilities ?? []).filter((a) => isCooldownCpm(a.benchmark) && !utilityIds.has(a.abilityId));
   const phaseNames = report.phases.find((p) => p.encounterID === fight.encounterID)?.phases ?? [];
   const phases = phaseSpans(fight.phaseTransitions, fight.startTime, durationMs, phaseNames);
   const timeline = reviewTimeline({
@@ -522,8 +527,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     // Cooldowns: abilities top players cast at most ~2 times a minute, plus the combat potion. With timeline
     // medians, only those top players press in the first minute (not e.g. a blink used whenever).
     cooldownIds: [
-      ...(comparison?.abilities ?? [])
-        .filter((a) => isCooldownCpm(a.benchmark) && !utilityIds.has(a.abilityId))
+      ...dpsCooldowns
         .filter((a) => {
           const first = bench?.benchmark.timeline?.firstUse[a.abilityId];
           return !bench?.benchmark.timeline || (first != null && first.median <= 60_000);
@@ -603,6 +607,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     benchmarkWeek: bench?.week ?? null,
     topPlayer: bench?.top ?? null,
     playerCasts: perf.casts,
+    cooldownIds: [...dpsCooldowns.map((a) => a.abilityId), ...potionIds.slice(0, 1)],
     snapshotWeek: avoidability.week,
     abilities,
     names,

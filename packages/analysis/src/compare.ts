@@ -1,5 +1,6 @@
 import type { SpecBenchmark } from "./benchmark";
 import type { KeyedSummary } from "./stats";
+import type { TimelineFinding } from "./timeline";
 
 /** Everything we measure about the viewer's own performance in one fight. */
 export interface PlayerPerformance {
@@ -51,7 +52,8 @@ export type PerfFinding =
   | { kind: "low-active-time"; player: number; median: number; estDpsGain: number | null }
   | { kind: "low-casts" | "missing-ability"; ability: AbilityComparison }
   | { kind: "low-buff-uptime"; buff: BuffComparison }
-  | { kind: "low-target-share"; target: TargetComparison };
+  | { kind: "low-target-share"; target: TargetComparison }
+  | TimelineFinding;
 
 export interface Comparison {
   sampleSize: number;
@@ -72,6 +74,11 @@ const LOW_CPM_RATIO = 0.85;
 const LOW_ACTIVE_GAP = 0.03;
 const LOW_UPTIME_GAP = 0.1;
 const LOW_TARGET_GAP = 0.05;
+/**
+ * Below p25 but above LOW_CPM_RATIO still counts as low when the missed casts are worth this share of your
+ * DPS: 10% fewer casts of your main nuke matters more than 30% fewer of a filler.
+ */
+const LOW_GAIN_SHARE = 0.02;
 /** An ability most top players use that you never cast. */
 const MISSING_USED_BY = 0.8;
 /**
@@ -96,11 +103,13 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark): Comp
     .map(([id, bench]) => {
       const casts = p.casts[id] ?? 0;
       const playerCpm = aliveMin ? casts / aliveMin : 0;
-      let s = status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO);
-      if (s === "missing" && bench.usedBy < MISSING_USED_BY) s = "low";
       const damagePerCast = casts ? (p.damageByAbility[id] ?? 0) / casts : 0;
       const missedCasts = Math.max(0, (bench.median - playerCpm) * aliveMin);
-      const estDpsGain = (s === "low" || s === "missing") && damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : null;
+      const gain = damagePerCast > 0 ? (missedCasts * damagePerCast) / durationSec : 0;
+      const bigGain = !!p.amount && gain >= p.amount * LOW_GAIN_SHARE;
+      let s = status(playerCpm, bench, () => playerCpm < bench.median * LOW_CPM_RATIO || bigGain);
+      if (s === "missing" && bench.usedBy < MISSING_USED_BY) s = "low";
+      const estDpsGain = (s === "low" || s === "missing") && gain > 0 ? gain : null;
       return { abilityId: Number(id), playerCpm, benchmark: bench, status: s, estDpsGain };
     })
     .sort((x, y) => y.benchmark.median - x.benchmark.median);
@@ -168,6 +177,7 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark): Comp
 export function gainOf(f: PerfFinding): number | null {
   if (f.kind === "low-active-time") return f.estDpsGain;
   if (f.kind === "low-casts" || f.kind === "missing-ability") return f.ability.estDpsGain;
+  if (f.kind === "idle-time") return f.estDpsGain;
   return null;
 }
 

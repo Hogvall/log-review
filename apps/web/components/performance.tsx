@@ -1,6 +1,6 @@
 import type { AbilityComparison, Comparison, PerfFinding, Status } from "@log-review/analysis";
 import { type AbilityInfo, IssueRow } from "./report";
-import { Ability } from "./ui";
+import { Ability, linkClass } from "./ui";
 import { compact, fightTime, percent } from "@/lib/format";
 
 /**
@@ -240,10 +240,18 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
               <td className="px-2 py-2 text-right">{percent(comparison.activeTime.player)}</td>
               <td className="px-2 py-2 text-right text-muted">{percent(comparison.activeTime.median)}</td>
               <td className="px-2 py-2">
-                <RangeBar player={comparison.activeTime.player} p25={comparison.activeTime.p25} median={comparison.activeTime.median} p75={comparison.activeTime.median} max={1} />
+                <RangeBar player={comparison.activeTime.player} p25={comparison.activeTime.p25} median={comparison.activeTime.median} p75={comparison.activeTime.p75} max={1} />
               </td>
               <td className="px-4 py-2 sm:pr-0">
-                <StatusBadge status={comparison.findings.some((f) => f.kind === "low-active-time") ? "low" : "ok"} />
+                <StatusBadge
+                  status={comparison.activeTime.status}
+                  diff={comparison.activeTime.median ? comparison.activeTime.player / comparison.activeTime.median - 1 : null}
+                />
+                {comparison.activeTime.status === "low" && comparison.findings.some((f) => f.kind === "idle-time") && (
+                  <a href="#timeline" className={`ml-1.5 text-xs ${linkClass}`} title="Your idle stretches, with timestamps, are in the Timeline tab">
+                    see Timeline
+                  </a>
+                )}
               </td>
             </tr>
             {rows.map((a) => {

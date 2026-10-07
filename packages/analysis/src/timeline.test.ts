@@ -495,3 +495,24 @@ describe("execute windows (RAI-2)", () => {
     expect(pull([28_000], { 15: null, 20: 410_000, 35: 380_000 }).status).toBe("execute");
   });
 });
+
+describe("time spent casting (RAI-3)", () => {
+  const s = (median: number, p25: number, p75: number) => ({ median, p25, p75, n: 15, usedBy: 1 });
+  const bench: SpecBenchmark = {
+    sampleSize: 15, insufficient: false, amount: s(270_000, 250_000, 280_000), durationMs: s(330_000, 320_000, 340_000),
+    itemLevel: s(328, 327, 329), activeTimePct: s(0.99, 0.98, 1), cpm: {}, buffUptime: {}, dtps: {}, targetShare: {}, deathRate: 0,
+  };
+  const at = (share: number) =>
+    compareToBenchmark(
+      { amount: 193_700, durationMs: 432_000, aliveMs: 420_000, itemLevel: 328, activeTimeMs: share * 420_000, casts: {}, damageByAbility: {}, buffUptime: {}, targetShare: {} },
+      bench,
+    ).activeTime;
+
+  it("judges the row from the comparison itself, not from whether a finding survived", () => {
+    // Aomine: 93% vs 99%. Low, even when the idle-time finding later replaces the low-casting-time one.
+    expect(at(0.93)).toMatchObject({ player: 0.93, median: 0.99, p75: 1, status: "low" });
+    // Under p25 but within 3 points of the median: in line.
+    expect(at(0.97).status).toBe("ok");
+    expect(at(1).status).toBe("ok");
+  });
+});

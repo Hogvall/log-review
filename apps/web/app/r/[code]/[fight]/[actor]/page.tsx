@@ -311,7 +311,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
               label="Casting"
               value={percent(comparison.activeTime.player)}
               sub={`top ${percent(comparison.activeTime.median)}`}
-              tone={comparison.activeTime.player < comparison.activeTime.p25 ? "bad" : undefined}
+              tone={comparison.activeTime.status === "low" ? "bad" : undefined}
             />
             <Stat label="Item level" value={comparison.itemLevel.player ?? "–"} sub={`top ${Math.round(comparison.itemLevel.median)}`} />
             <Stat label="Length" value={fightTime(comparison.durationMs.player)} sub={`top kills ${fightTime(comparison.durationMs.median)}`} />

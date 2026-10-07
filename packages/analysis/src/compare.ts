@@ -112,7 +112,8 @@ export interface Comparison {
   amount: { player: number; median: number; p25: number; p75: number; similar: SimilarLengthAmount | null; ratio: number } | null;
   itemLevel: { player: number | null; median: number };
   durationMs: { player: number; median: number };
-  activeTime: { player: number; median: number; p25: number };
+  /** Status is judged here (not from the findings), so it stays right when the idle-time finding replaces that finding. */
+  activeTime: { player: number; median: number; p25: number; p75: number; status: Status };
   abilities: AbilityComparison[];
   buffs: BuffComparison[];
   targets: TargetComparison[];
@@ -280,7 +281,8 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
   };
 
   const findings: PerfFinding[] = [];
-  if (activeTime < b.activeTimePct.p25 && b.activeTimePct.median - activeTime >= LOW_ACTIVE_GAP) {
+  const lowActive = activeTime < b.activeTimePct.p25 && b.activeTimePct.median - activeTime >= LOW_ACTIVE_GAP;
+  if (lowActive) {
     const estDpsGain = p.amount && activeTime > 0 ? p.amount * (b.activeTimePct.median / activeTime - 1) : null;
     findings.push({ kind: "low-active-time", player: activeTime, median: b.activeTimePct.median, estDpsGain });
   }
@@ -306,7 +308,14 @@ export function compareToBenchmark(p: PlayerPerformance, b: SpecBenchmark, opts:
         : null,
     itemLevel: { player: p.itemLevel, median: b.itemLevel.median },
     durationMs: { player: p.durationMs, median: b.durationMs.median },
-    activeTime: { player: activeTime, median: b.activeTimePct.median, p25: b.activeTimePct.p25 },
+    activeTime: {
+      player: activeTime,
+      median: b.activeTimePct.median,
+      p25: b.activeTimePct.p25,
+      p75: b.activeTimePct.p75,
+      // Casting more than top players isn't a thing to flag, so this is only ever low or in line.
+      status: lowActive ? "low" : "ok",
+    },
     abilities,
     buffs,
     targets,

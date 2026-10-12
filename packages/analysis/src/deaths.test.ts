@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import pull56 from "../fixtures/pull56.json";
-import { buildPlayerReport, classifyDeaths, deathRecap } from "./index";
+import { buildPlayerReport, classifyDeaths, damageByAbility, deathRecap } from "./index";
 
 // Real data: pull #56 on Entombed Sentinels (report qxNVmdX26zP8py3A), a wipe at 34.1%.
 const name = new Map(pull56.players.map((p) => [p.id, p.name]));
@@ -87,5 +87,17 @@ describe("buildPlayerReport", () => {
   it("says when there's no snapshot data", () => {
     const empty = buildPlayerReport({ ...report, playerId: 1, fightStartTime: 0, raidSize: 20, kill: false, raidDeaths: [], damageTaken: [], avoidability: {} });
     expect(empty.hasAvoidabilityData).toBe(false);
+  });
+});
+
+describe("damageByAbility", () => {
+  it("counts shield-absorbed hits but not immuned ones", () => {
+    const out = damageByAbility([
+      { timestamp: 1, type: "damage", abilityGameID: 7, amount: 50_000 },
+      { timestamp: 2, type: "damage", abilityGameID: 7, amount: 0, absorbed: 40_000 },
+      { timestamp: 3, type: "damage", abilityGameID: 7, amount: 0 }, // Divine Shield
+      { timestamp: 4, type: "damage", abilityGameID: 8, amount: 0 }, // only ever immuned
+    ]);
+    expect(out).toEqual([{ abilityId: 7, total: 90_000, hits: 2 }]);
   });
 });

@@ -10,6 +10,16 @@ const AVOIDABILITY: Record<Avoidability, { label: string; className: string; hel
   avoidable: { label: "avoidable", className: "text-dmg", help: "Most top players take no damage from this." },
   situational: { label: "situational", className: "text-warn", help: "Some top players take it: a soak, or role/position dependent." },
   unavoidable: { label: "unavoidable", className: "text-faint", help: "Almost everyone takes it. Survive it with defensives and healing." },
+  "raid-wide": {
+    label: "raid-wide",
+    className: "text-warn",
+    help: "Only happens when the raid misses a mechanic (an add, a soak, an interrupt, the tank's position), and then it hits nearly everyone. Not caused by where you stood.",
+  },
+  targeted: {
+    label: "targeted",
+    className: "text-faint",
+    help: "The boss picks who takes this (a mark, a tether, an uninterrupted bolt). Moving doesn't avoid it: follow the mechanic and use a defensive if it hurts.",
+  },
   "tank-mechanic": {
     label: "tank mechanic",
     className: "text-faint",
@@ -17,11 +27,28 @@ const AVOIDABILITY: Record<Avoidability, { label: string; className: string; hel
   },
 };
 
-export function AvoidabilityBadge({ value, zeroShare, tank }: { value: Avoidability | null; zeroShare?: number | null; tank?: boolean }) {
+export function AvoidabilityBadge({
+  value,
+  zeroShare,
+  fightShare,
+  raidBreadth,
+  tank,
+}: {
+  value: Avoidability | null;
+  zeroShare?: number | null;
+  fightShare?: number | null;
+  raidBreadth?: number | null;
+  tank?: boolean;
+}) {
   if (!value) return <span className="text-xs text-faint" title="No top-player data for this ability yet.">–</span>;
   const info = AVOIDABILITY[value];
   // A tank's labels come from top tanks in the same fights.
-  const detail = zeroShare != null ? ` ${percent(zeroShare)} of top ${tank ? "tanks" : "players"} took none.` : "";
+  const detail =
+    value === "raid-wide" && fightShare != null && raidBreadth != null
+      ? ` It happened in ${percent(fightShare)} of top kills, hitting ${percent(raidBreadth)} of the raid.`
+      : zeroShare != null
+        ? ` ${percent(zeroShare)} of top ${tank ? "tanks" : "players"} took none.`
+        : "";
   return (
     <span className={`text-xs font-medium ${info.className}`} title={info.help + detail}>
       {info.label}

@@ -321,10 +321,10 @@ async function getAvoidability(
   // Tanks' view, falling back to everyone's for abilities (or snapshots) without enough tank data.
   const tankMap: AvoidabilityMap = {};
   for (const r of rows) {
-    map[r.abilityId] = { classification: r.classification, zeroShare: r.zeroShare };
+    map[r.abilityId] = { classification: r.classification, zeroShare: r.zeroShare, fightShare: r.fightShare, raidBreadth: r.raidBreadth };
     tankMap[r.abilityId] =
       r.tankClassification && r.tankZeroShare != null
-        ? { classification: r.tankClassification, zeroShare: r.tankZeroShare }
+        ? { ...map[r.abilityId]!, classification: r.tankClassification, zeroShare: r.tankZeroShare }
         : map[r.abilityId]!;
   }
   return { map, tankMap, week: latest.week };

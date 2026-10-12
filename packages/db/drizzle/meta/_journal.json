@@ -57,6 +57,13 @@
       "when": 1791411732101,
       "tag": "0007_sharp_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791846769238,
+      "tag": "0008_magenta_dexter_bennett",
+      "breakpoints": true
     }
   ]
 }

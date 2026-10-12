@@ -569,7 +569,7 @@ describe("tank mechanics (RAI-8)", () => {
   const others = Array.from({ length: 40 }, (_, i) => metrics({ ...(i < 2 ? { [MELEE]: 500 } : {}), ...(i === 0 ? { [PUDDLE]: 100 } : {}) }));
   // 12 tanks: all take melee and the buster; 1 stands in the puddle.
   const tanks = Array.from({ length: 12 }, (_, i) => metrics({ [MELEE]: 20_000, [BUSTER]: 5000, ...(i === 0 ? { [PUDDLE]: 100 } : {}) }));
-  const nonTank = encounterAvoidability(others);
+  const nonTank = encounterAvoidability([others]);
   const forTanks = tankAvoidability(tanks, nonTank);
 
   it("labels what only tanks take as a tank mechanic, and keeps puddles avoidable for tanks", () => {

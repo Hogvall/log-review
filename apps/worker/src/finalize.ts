@@ -25,6 +25,7 @@ import {
   rankingEntries,
   snapshots,
 } from "@log-review/db";
+import { isTargetedAbility } from "@log-review/encounters";
 import { and, count, eq, inArray, sql } from "drizzle-orm";
 
 /**
@@ -157,9 +158,14 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
     cohorts.set(row.specKey, cohort);
   }
 
-  // Every non-tank player in the snapshot's fights for this boss, not just the ranked ones.
+  // Every player in the snapshot's fights for this boss, not just the ranked ones.
   const fightPlayers = await db
-    .select({ specKey: playerMetrics.specKey, metrics: playerMetrics.metrics })
+    .select({
+      reportCode: playerMetrics.reportCode,
+      fightId: playerMetrics.fightId,
+      specKey: playerMetrics.specKey,
+      metrics: playerMetrics.metrics,
+    })
     .from(playerMetrics)
     .where(
       // Only fights where damage taken was downloaded (a sample per boss) can say what's avoidable.
@@ -169,9 +175,14 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
         WHERE r.snapshot_id = ${snapshotId} AND r.encounter_id = ${encounterId} AND r.difficulty = ${difficulty}
       )`,
     );
-  const avoidability = encounterAvoidability(
-    fightPlayers.filter((p) => roleOf(p.specKey) !== "tank").map((p) => p.metrics as PlayerMetrics),
-  );
+  // Non-tanks grouped by fight: raid-wide and targeted abilities show up as per-fight patterns.
+  const nonTankFights = new Map<string, PlayerMetrics[]>();
+  for (const p of fightPlayers) {
+    if (roleOf(p.specKey) === "tank") continue;
+    const key = `${p.reportCode}#${p.fightId}`;
+    nonTankFights.set(key, [...(nonTankFights.get(key) ?? []), p.metrics as PlayerMetrics]);
+  }
+  const avoidability = encounterAvoidability([...nonTankFights.values()], await targetedAbilityIds(db, encounterId, fightPlayers));
   // Tanks get their own view: they take boss melee and tank busters on purpose.
   const forTanks = tankAvoidability(
     fightPlayers.filter((p) => roleOf(p.specKey) === "tank").map((p) => p.metrics as PlayerMetrics),
@@ -207,6 +218,8 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
         medianDtpsWhenHit: a?.medianDtpsWhenHit ?? 0,
         sampleSize: a?.sampleSize ?? nonTankSample,
         classification: a?.classification ?? ("avoidable" as const),
+        fightShare: a?.fightShare ?? null,
+        raidBreadth: a?.raidBreadth ?? null,
         tankZeroShare: t?.zeroShare ?? null,
         tankClassification: t?.classification ?? null,
       };
@@ -223,4 +236,15 @@ async function aggregateGroup(db: Db, snapshotId: number, encounterId: number, d
       });
   });
   console.log(`  encounter ${encounterId} difficulty ${difficulty}: ${cohorts.size} specs, ${fightPlayers.length} players`);
+}
+
+/** IDs of the abilities the boss notes list as targeted, among those anyone in the sample took. */
+async function targetedAbilityIds(db: Db, encounterId: number, players: { metrics: unknown }[]): Promise<Set<string>> {
+  const ids = [...new Set(players.flatMap((p) => Object.keys((p.metrics as PlayerMetrics).dtps).map(Number)))];
+  const out = new Set<string>();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const named = await db.select().from(abilities).where(inArray(abilities.id, ids.slice(i, i + 1000)));
+    for (const a of named) if (isTargetedAbility(encounterId, a.name)) out.add(String(a.id));
+  }
+  return out;
 }

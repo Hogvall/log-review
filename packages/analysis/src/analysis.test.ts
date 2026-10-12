@@ -4,6 +4,7 @@ import {
   type PlayerMetrics,
   classifyAvoidability,
   encounterAvoidability,
+  tankAvoidability,
   extractFightMetrics,
   median,
   quantile,
@@ -123,7 +124,7 @@ describe("encounterAvoidability", () => {
     const players = Array.from({ length: 20 }, (_, i) =>
       player({ dtps: { raidwide: 100, pool: i === 0 ? 500 : 0, soak: i < 8 ? 200 : 0 } }),
     );
-    const out = encounterAvoidability(players);
+    const out = encounterAvoidability([players]);
     expect(out.raidwide?.classification).toBe("unavoidable");
     expect(out.pool?.classification).toBe("avoidable");
     expect(out.pool?.medianDtpsWhenHit).toBe(500);
@@ -131,7 +132,61 @@ describe("encounterAvoidability", () => {
   });
 
   it("skips abilities that never did damage", () => {
-    expect(encounterAvoidability([player({ dtps: { immune: 0 } })]).immune).toBeUndefined();
+    expect(encounterAvoidability([[player({ dtps: { immune: 0 } })]]).immune).toBeUndefined();
+  });
+
+  // 20 fights of 18 players, shaped like the W41 Mythic sample.
+  const fights = Array.from({ length: 20 }, (_, f) =>
+    Array.from({ length: 18 }, (_, i) =>
+      player({
+        dtps: {
+          // Unchecked Rage: the tank left melee in 2 kills, and everyone took it.
+          ...(f < 2 ? { rage: 1000 } : {}),
+          // Grasping Fangs: a tether on exactly 3 players every kill.
+          ...(i < 3 ? { tether: 300 } : {}),
+          // Mighty Thud: a soak most of the raid shares, in 19 of 20 kills.
+          ...(f > 0 && i < 16 ? { thud: 400 } : {}),
+          // A swirl one or two players clip in some kills.
+          ...(i < (f % 3 === 0 ? 2 : f % 3 === 1 ? 1 : 0) ? { swirl: 200 } : {}),
+          raid: 500,
+        },
+      }),
+    ),
+  );
+
+  it("labels what only hits the raid after a missed mechanic as raid-wide, not avoidable", () => {
+    const out = encounterAvoidability(fights);
+    expect(out.rage).toMatchObject({ classification: "raid-wide", fightShare: 0.1, raidBreadth: 1 });
+    expect(out.rage!.zeroShare).toBeGreaterThan(0.85);
+    expect(out.swirl?.classification).toBe("avoidable");
+    expect(out.raid?.classification).toBe("unavoidable");
+  });
+
+  it("labels abilities that hit the same few players every kill as targeted", () => {
+    const out = encounterAvoidability(fights);
+    expect(out.tether?.classification).toBe("targeted");
+    // The swirl's victims vary from kill to kill, and a soak for everyone isn't aimed at anyone.
+    expect(out.swirl?.classification).toBe("avoidable");
+    expect(out.thud?.classification).toBe("situational");
+  });
+
+  it("takes targeted abilities from the boss notes, but never relabels unavoidable ones", () => {
+    const out = encounterAvoidability(fights, new Set(["swirl", "raid", "rage"]));
+    expect(out.swirl?.classification).toBe("targeted");
+    expect(out.raid?.classification).toBe("unavoidable");
+    expect(out.rage?.classification).toBe("raid-wide");
+  });
+
+  it("gives tanks the same raid-wide and targeted labels", () => {
+    const tanks = Array.from({ length: 12 }, (_, i) => player({ dtps: { rage: i < 2 ? 1000 : 0, tether: i === 0 ? 300 : 0 } }));
+    const out = tankAvoidability(tanks, encounterAvoidability(fights));
+    expect(out.rage?.classification).toBe("raid-wide");
+    expect(out.tether?.classification).toBe("targeted");
+  });
+
+  it("doesn't trust per-fight patterns from a handful of fights", () => {
+    expect(encounterAvoidability(fights.slice(0, 2)).rage?.classification).toBe("unavoidable");
+    expect(encounterAvoidability(fights.slice(0, 2)).tether?.classification).not.toBe("targeted");
   });
 
   it("uses inclusive thresholds", () => {

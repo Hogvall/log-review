@@ -42,7 +42,7 @@ export const MIN_SAMPLE = 5;
  * Bump when benchmark aggregation changes (new fields, different math). The worker re-aggregates every
  * snapshot whose stored aggregation is older, so the site picks up the change without a new crawl.
  */
-export const BENCHMARK_VERSION = 4;
+export const BENCHMARK_VERSION = 5;
 
 /** Median-based benchmark for one spec on one boss and difficulty. */
 export function specBenchmark(
@@ -80,8 +80,9 @@ export function specBenchmark(
 /**
  * "tank-mechanic": tanks almost always take it and other roles almost never do (boss melee, tank busters).
  * Only used for tanks; for everyone else such an ability is "avoidable".
+ * "raid-wide" and "targeted": see encounterAvoidability. Neither is a personal mistake.
  */
-export type Avoidability = "avoidable" | "situational" | "unavoidable" | "tank-mechanic";
+export type Avoidability = "avoidable" | "situational" | "unavoidable" | "raid-wide" | "targeted" | "tank-mechanic";
 /** What the data says for one cohort, before the tank-mechanic check. */
 export type BaseAvoidability = Exclude<Avoidability, "tank-mechanic">;
 
@@ -91,6 +92,10 @@ export interface AbilityAvoidability {
   /** Median damage per second among the players that did take it. */
   medianDtpsWhenHit: number;
   sampleSize: number;
+  /** Share of sampled fights where anyone took it. */
+  fightShare: number;
+  /** In fights where anyone took it, the median share of the raid that did. */
+  raidBreadth: number;
   classification: BaseAvoidability;
 }
 
@@ -103,22 +108,72 @@ export function classifyAvoidability(zeroShare: number): BaseAvoidability {
   return "situational";
 }
 
+/** Fewer sampled fights than this, and the per-fight patterns below aren't trusted. */
+export const MIN_PATTERN_FIGHTS = 10;
+/** Raid-wide: happens in at most this share of top kills... */
+export const RAID_WIDE_MAX_FIGHT_SHARE = 0.6;
+/** ...and, when it does, hits at least this share of the raid (median over those fights). */
+export const RAID_WIDE_MIN_BREADTH = 0.5;
+/** Targeted: hits the same number of players (at least 2, under half the raid) in at least this share of top kills. */
+export const TARGETED_MIN_FIGHT_SHARE = 0.9;
+
+const median = (values: number[]) => (values.length ? summarize(values).median : 0);
+
 /**
- * Data-driven avoidability for every boss ability, from many players' damage taken.
+ * Data-driven avoidability for every boss ability, from many players' damage taken, grouped by fight.
  * Pass non-tank players only: tanks take hits on purpose.
+ *
+ * "Took none" is the signal, so it matters who counts as hit. Damage a shield absorbed counts (you were
+ * still hit); an immunity doesn't (Divine Shield, Cloak, Blessing of Protection: measured on Mythic, top
+ * players immune too rarely to move any ability across a threshold). Two per-fight patterns override the
+ * share of players who took none, because neither is about where an individual stood:
+ * - "raid-wide": absent from most top kills, but when it happens it hits most of the raid at once. It's the
+ *   penalty for a missed raid mechanic (an add reaching the boss, a failed soak, the tank leaving melee).
+ * - "targeted": the boss picks who takes it, so the same number of players take it in nearly every kill
+ *   (tethers, marks), plus abilities a boss guide says are targeted (`targeted`, ability IDs).
  */
-export function encounterAvoidability(players: PlayerMetrics[]): Record<string, AbilityAvoidability> {
+export function encounterAvoidability(
+  fights: PlayerMetrics[][],
+  targeted: ReadonlySet<string> = new Set(),
+): Record<string, AbilityAvoidability> {
+  const players = fights.flat();
+  const sampled = fights.filter((f) => f.length);
   const abilities = new Set(players.flatMap((p) => Object.keys(p.dtps)));
   const out: Record<string, AbilityAvoidability> = {};
   for (const id of abilities) {
     const hit = players.map((p) => p.dtps[id] ?? 0).filter((v) => v > 0);
     if (!hit.length) continue; // only zero-damage events (immunes, misses): nothing to avoid
     const zeroShare = 1 - hit.length / players.length;
+    // Players hit in each fight where anyone was.
+    const perFight = sampled
+      .map((f) => ({ hit: f.filter((p) => (p.dtps[id] ?? 0) > 0).length, size: f.length }))
+      .filter((f) => f.hit > 0);
+    const fightShare = sampled.length ? perFight.length / sampled.length : 0;
+    const raidBreadth = median(perFight.map((f) => f.hit / f.size));
+    const typicalHit = median(perFight.map((f) => f.hit));
+
+    let classification = classifyAvoidability(zeroShare);
+    if (sampled.length >= MIN_PATTERN_FIGHTS) {
+      if (fightShare <= RAID_WIDE_MAX_FIGHT_SHARE && raidBreadth >= RAID_WIDE_MIN_BREADTH) classification = "raid-wide";
+      else if (
+        classification !== "unavoidable" &&
+        fightShare >= TARGETED_MIN_FIGHT_SHARE &&
+        raidBreadth < RAID_WIDE_MIN_BREADTH &&
+        typicalHit >= 2 &&
+        perFight.every((f) => f.hit <= typicalHit)
+      ) {
+        classification = "targeted";
+      }
+    }
+    if (targeted.has(id) && classification !== "unavoidable" && classification !== "raid-wide") classification = "targeted";
+
     out[id] = {
       zeroShare,
       medianDtpsWhenHit: summarize(hit).median,
       sampleSize: players.length,
-      classification: classifyAvoidability(zeroShare),
+      fightShare,
+      raidBreadth,
+      classification,
     };
   }
   return out;
@@ -156,7 +211,14 @@ export function tankAvoidability(
     // Abilities no non-tank took at all aren't in their map: nobody else takes them.
     const othersZeroShare = nonTank[id]?.zeroShare ?? 1;
     const tankMechanic = zeroShare <= TANK_MECHANIC_MAX_ZERO_SHARE && othersZeroShare >= AVOIDABLE_ZERO_SHARE;
-    out[id] = { zeroShare, sampleSize: tanks.length, classification: tankMechanic ? "tank-mechanic" : classifyAvoidability(zeroShare) };
+    // A raid-wide failure or a targeted ability isn't the tank's to dodge either (the tips say when it's their job).
+    const shared = nonTank[id]?.classification;
+    const classification = tankMechanic
+      ? "tank-mechanic"
+      : shared === "raid-wide" || shared === "targeted"
+        ? shared
+        : classifyAvoidability(zeroShare);
+    out[id] = { zeroShare, sampleSize: tanks.length, classification };
   }
   return out;
 }

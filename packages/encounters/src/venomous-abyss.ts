@@ -71,6 +71,8 @@ export const VENOMOUS_ABYSS: Boss[] = [
       "Steady Strikes": { tip: "Stacking physical vulnerability on Nama's target.", role: "tank" },
       "Shredding Shards": { tip: "Tanks swap bosses after each Iku cast.", role: "tank" },
     },
+    // Lands on whoever Iku's bolt targets when nobody interrupts it.
+    targeted: ["Icebound Flames"],
   },
   {
     encounterId: 3420,
@@ -122,6 +124,8 @@ export const VENOMOUS_ABYSS: Boss[] = [
       "Defilement of the Crucible": { tip: "Tanks swap to drop the stacking DoT.", role: "tank" },
       "Dread Bolt": { tip: "Shadow damage on the active tank.", role: "tank" },
     },
+    // Top players' hits land while they already carry the Soul Sever debuff (96% on Mythic, W41).
+    targeted: ["Soul Sever"],
   },
   {
     encounterId: 3492,
@@ -146,6 +150,8 @@ export const VENOMOUS_ABYSS: Boss[] = [
       "Volatile Purge": { tip: "Spread out after soaking so you don't hit others." },
       "Vicious Echoes": { tip: "Interrupt the Shriekers, or the raid gets stunned and takes heavy damage." },
     },
+    // A tether on chosen players (every top hit while carrying the Grasping Fangs debuff).
+    targeted: ["Grasping Fangs"],
   },
   {
     encounterId: 3379,

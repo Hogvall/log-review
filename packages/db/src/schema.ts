@@ -183,10 +183,18 @@ export const encounterAbilities = pgTable(
     zeroShare: real("zero_share").notNull(),
     medianDtpsWhenHit: real("median_dtps_when_hit").notNull(),
     sampleSize: integer("sample_size").notNull(),
-    classification: text("classification", { enum: ["avoidable", "situational", "unavoidable"] }).notNull(),
+    classification: text("classification", {
+      enum: ["avoidable", "situational", "unavoidable", "raid-wide", "targeted"],
+    }).notNull(),
+    /** Share of sampled fights where any non-tank took it; null in older snapshots. */
+    fightShare: real("fight_share"),
+    /** In those fights, the median share of non-tanks that took it; null in older snapshots. */
+    raidBreadth: real("raid_breadth"),
     /** From tanks' point of view (tanks take boss melee and tank busters on purpose); null without enough tanks. */
     tankZeroShare: real("tank_zero_share"),
-    tankClassification: text("tank_classification", { enum: ["avoidable", "situational", "unavoidable", "tank-mechanic"] }),
+    tankClassification: text("tank_classification", {
+      enum: ["avoidable", "situational", "unavoidable", "raid-wide", "targeted", "tank-mechanic"],
+    }),
   },
   (t) => [primaryKey({ name: "encounter_abilities_pk", columns: [t.snapshotId, t.encounterId, t.difficulty, t.abilityId] })],
 );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAbilityTip, getBoss } from "./index";
+import { getAbilityTip, getBoss, isTargetedAbility } from "./index";
 
 describe("encounters", () => {
   it("covers the Venomous Abyss bosses with guide links", () => {
@@ -14,5 +14,12 @@ describe("encounters", () => {
     expect(getAbilityTip(3470, "Soul Transfer")).not.toBeNull();
     expect(getAbilityTip(3445, "Something Else")).toBeNull();
     expect(getAbilityTip(3445, undefined)).toBeNull();
+  });
+
+  it("lists targeted abilities by name", () => {
+    expect(isTargetedAbility(3492, "Grasping Fangs")).toBe(true);
+    expect(isTargetedAbility(3429, "soul sever")).toBe(true);
+    expect(isTargetedAbility(3492, "Virulent Spit")).toBe(false);
+    expect(isTargetedAbility(999, "Grasping Fangs")).toBe(false);
   });
 });

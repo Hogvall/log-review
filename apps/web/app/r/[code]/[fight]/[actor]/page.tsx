@@ -185,7 +185,13 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
                         {tips[a.abilityId] && <span className="mt-0.5 block max-w-md text-xs text-muted">{tips[a.abilityId]!.tip}</span>}
                       </td>
                       <td className="py-1.5 pr-3">
-                        <AvoidabilityBadge value={a.classification} zeroShare={a.zeroShare} tank={isTank} />
+                        <AvoidabilityBadge
+                          value={a.classification}
+                          zeroShare={a.zeroShare}
+                          fightShare={a.fightShare}
+                          raidBreadth={a.raidBreadth}
+                          tank={isTank}
+                        />
                       </td>
                       <td className="num py-1.5 pr-3 text-right text-fg/85">{a.hits}</td>
                       <td className="num py-1.5 pr-3 text-right text-fg/85">{compact(a.total)}</td>

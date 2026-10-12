@@ -12,7 +12,10 @@ import {
 } from "./deaths";
 
 /** Avoidability of boss abilities for this boss and difficulty, from the weekly snapshot. */
-export type AvoidabilityMap = Record<string, { classification: Avoidability; zeroShare: number }>;
+export type AvoidabilityMap = Record<
+  string,
+  { classification: Avoidability; zeroShare: number; fightShare?: number | null; raidBreadth?: number | null }
+>;
 
 export interface PlayerDeath extends ClassifiedDeath {
   recap: DeathRecap;
@@ -25,6 +28,9 @@ export interface AbilityDamageTaken extends AbilityDamage {
   classification: Avoidability | null;
   /** Share of top players that took none of this ability, when known. */
   zeroShare: number | null;
+  /** Share of top kills where it happened, and how much of the raid it hit then (for raid-wide abilities). */
+  fightShare: number | null;
+  raidBreadth: number | null;
 }
 
 export type Severity = "high" | "medium" | "low";
@@ -88,6 +94,8 @@ export function buildPlayerReport(input: PlayerReportInput): PlayerReport {
     share: totalDamageTaken ? a.total / totalDamageTaken : 0,
     classification: lookup(a.abilityId)?.classification ?? null,
     zeroShare: lookup(a.abilityId)?.zeroShare ?? null,
+    fightShare: lookup(a.abilityId)?.fightShare ?? null,
+    raidBreadth: lookup(a.abilityId)?.raidBreadth ?? null,
   }));
 
   const findings: Finding[] = [];
@@ -97,7 +105,8 @@ export function buildPlayerReport(input: PlayerReportInput): PlayerReport {
   }
   const killedBy = new Set(deaths.map((d) => d.killingAbilityGameID));
   for (const ability of damageTaken) {
-    // An avoidable ability that killed you is already covered by the death finding.
+    // An avoidable ability that killed you is already covered by the death finding. Raid-wide and targeted
+    // abilities aren't findings: moving wouldn't have avoided them.
     if (ability.classification !== "avoidable" || killedBy.has(ability.abilityId)) continue;
     const severity: Severity = ability.hits >= 3 || ability.share >= 0.1 ? "medium" : "low";
     findings.push({ kind: "avoidable-damage", severity, ability });

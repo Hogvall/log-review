@@ -101,18 +101,22 @@ export interface AbilityDamage {
   hits: number;
 }
 
-/** Sums damage per ability, largest first. Absorbed damage counts: it's still damage you took. */
+/**
+ * Sums damage per ability, largest first. Absorbed damage counts: it's still damage you took, and a hit a
+ * shield soaked was still a hit. Hits that did nothing (immunities, misses) don't count at all: an
+ * immunity used on a mechanic dealt with it.
+ */
 export function damageByAbility(events: DamageTakenEvent[]): AbilityDamage[] {
   const byAbility = new Map<number, AbilityDamage>();
   for (const e of events) {
-    if (e.type !== "damage" || !e.abilityGameID) continue;
+    const amount = (e.amount ?? 0) + (e.absorbed ?? 0);
+    if (e.type !== "damage" || !e.abilityGameID || amount <= 0) continue;
     const entry = byAbility.get(e.abilityGameID) ?? { abilityId: e.abilityGameID, total: 0, hits: 0 };
-    entry.total += (e.amount ?? 0) + (e.absorbed ?? 0);
+    entry.total += amount;
     entry.hits++;
     byAbility.set(e.abilityGameID, entry);
   }
-  // Hits that did nothing (immunities, misses) are noise in a damage breakdown.
-  return [...byAbility.values()].filter((a) => a.total > 0).sort((a, b) => b.total - a.total);
+  return [...byAbility.values()].sort((a, b) => b.total - a.total);
 }
 
 export interface DeathRecap {

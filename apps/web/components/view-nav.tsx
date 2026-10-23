@@ -9,10 +9,10 @@ export type AppView = "personal" | "raid";
  * The closest page of each view to where you are, worked out from the URL alone:
  *   /r/<code>/<fight>/<actor>                         ↔ /r/<code>/raid/<boss>/players/<actor>?scope=<fight>
  *   /r/<code>/<fight>                                 ↔ /r/<code>/raid/<boss>?scope=<fight>
- *   /r/<code>                                         ↔ /r/<code>?view=raid
+ *   /r/<code>?view=personal                           ↔ /r/<code>?view=raid  (/r/<code> alone is the chooser)
  * The personal → raid direction doesn't know the boss, so it goes through the report page, which redirects.
  */
-export function viewLinks(pathname: string, search: URLSearchParams): { active: AppView; personal: string; raid: string } | null {
+export function viewLinks(pathname: string, search: URLSearchParams): { active: AppView | null; personal: string; raid: string } | null {
   const parts = pathname.split("/").filter(Boolean);
   if (parts[0] !== "r" || !parts[1]) return null;
   const code = parts[1];
@@ -23,16 +23,18 @@ export function viewLinks(pathname: string, search: URLSearchParams): { active: 
     return {
       active: "raid",
       raid: `${pathname}${scope ? `?scope=${scope}` : ""}`,
-      personal: fight ? (actor ? `/r/${code}/${fight}/${actor}` : `/r/${code}/${fight}`) : `/r/${code}`,
+      personal: fight ? (actor ? `/r/${code}/${fight}/${actor}` : `/r/${code}/${fight}`) : `/r/${code}?view=personal`,
     };
   }
   const [fight, actor] = [parts[2], parts[3]];
-  const active: AppView = !fight && search.get("view") === "raid" ? "raid" : "personal";
+  // The report page without a view is the chooser: nothing is picked yet.
+  const view = search.get("view");
+  const active: AppView | null = fight ? "personal" : view === "raid" || view === "personal" ? view : null;
   const raid = fight ? `/r/${code}?view=raid&fight=${fight}${actor ? `&actor=${actor}` : ""}` : `/r/${code}?view=raid`;
-  return { active, raid, personal: fight ? pathname : `/r/${code}` };
+  return { active, raid, personal: fight ? pathname : `/r/${code}?view=personal` };
 }
 
-/** The two halves of the site, in the header. Hidden on the home page, which has its own chooser. */
+/** The two halves of the site, in the header. Hidden on the home page: you pick a view after entering a log. */
 export function ViewNav() {
   const pathname = usePathname();
   const search = useSearchParams();

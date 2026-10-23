@@ -30,7 +30,7 @@ export default async function FightPage({ params }: { params: Promise<{ code: st
         <Breadcrumbs
           items={[
             { label: "Home", href: "/" },
-            { label: report.title, href: `/r/${code}` },
+            { label: report.title, href: `/r/${code}?view=personal` },
             { label: `${fight.name} pull ${pull}` },
           ]}
         />

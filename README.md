@@ -11,18 +11,19 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
 
 ## The website
 
-The look is a dark "raid HUD": slate panels, gold for cooldowns and the active view, coral for mistakes, Inter Tight for text and Space Mono for numbers and times. The site has two views, picked on the home page before pasting a link and switchable in the header of every page (each links to the closest page of the other view, worked out from the URL):
+The look is a dark "raid HUD": slate panels, gold for cooldowns and the active view, coral for mistakes, Inter Tight for text and Space Mono for numbers and times. The site has two views, picked after pasting a link and switchable in the header of every page (each links to the closest page of the other view, worked out from the URL):
 
 - **Personal improvement:** your own play next to the top players of your spec: opener, cooldowns, potions and rotation.
 - **Raid leader:** the raid as a whole, or one player at a time, over one pull, all wipes, the kill or all pulls.
 
-1. **Pick a view and paste a link.** Links that already point at a fight or player skip ahead; `?fight=last` jumps to the last pull. In the raid view a linked pull opens the raid page for that pull.
-2. **Pick a pull** (`/r/<code>`, raid view at `?view=raid`). Pulls are grouped by boss. Personal: buttons for the best and the last pull. Raid leader: All pulls, All wipes, The kill and Players, and each pull opens the raid page for that pull.
+1. **Paste a link** (`/`). The home page only asks for the log. A link to one player's pull opens their personal view straight away; a link to a pull (or `?fight=last`) carries that pull through the next step.
+2. **Pick a view** (`/r/<code>`): Personal improvement or Raid leader, as two big choices.
+3. **Pick a pull** (`/r/<code>?view=personal` or `?view=raid`). Pulls are grouped by boss. Personal: buttons for the best and the last pull. Raid leader: All pulls, All wipes, The kill and Players, and each pull opens the raid page for that pull.
 
 ### Personal improvement
 
-3. **Pick yourself** (`/r/<code>/<fight>`). Players are grouped by role. The site remembers your character and offers "Continue as …".
-4. **Player report** (`/r/<code>/<fight>/<actor>`, shareable). DPS-only: deaths and damage taken live in the raid view (a banner links there when you died).
+4. **Pick yourself** (`/r/<code>/<fight>`). Players are grouped by role. The site remembers your character and offers "Continue as …".
+5. **Player report** (`/r/<code>/<fight>/<actor>`, shareable). DPS-only: deaths and damage taken live in the raid view (a banner links there when you died).
    - **Top:** a gauge of your DPS vs top players, a one-line verdict (the two findings worth the most), and meters for DPS, time casting, potions and item level.
    - **Your next three pulls:** the three findings worth the most as cards, with the spell's icon and estimated gain; the rest are under "More rotation mistakes".
    - **Timeline**, in five styles picked with a switch (remembered per browser):
@@ -38,7 +39,7 @@ The look is a dark "raid HUD": slate panels, gold for cooldowns and the active v
 
 ### Raid leader
 
-5. **Raid pages** (`/r/<code>/raid/<encounter>-<difficulty>?scope=all|wipes|kill|<fightId>`). The scope picker chooses all pulls, all wipes, the kill or one pull (pulls under 30s are skipped as resets except when picked on their own). Two pages:
+6. **Raid pages** (`/r/<code>/raid/<encounter>-<difficulty>?scope=all|wipes|kill|<fightId>`). The scope picker chooses all pulls, all wipes, the kill or one pull (pulls under 30s are skipped as resets except when picked on their own). Two pages:
    - **Whole raid:**
      - **Pull strip:** boss health left in each pull of the scope; click one to open it.
      - **Is the damage enough?** Drawn as the boss's health bar at the time the slower quarter of kills finish. For wipes: from the 3 furthest wipes (or the picked pull), damage to the bosses (adds excluded; council bosses together), boss health estimated from damage ÷ health removed, and when the boss would die at that damage rate, drawn against the kill times of the kills the crawler has downloaded: "enough" if it would die by the slower quarter of kills (75th percentile), "close" within 10%, otherwise "short" with how much more damage is needed. For a kill: its length next to other raids' kills.

@@ -169,7 +169,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       <Breadcrumbs
         items={[
           { label: "Home", href: "/" },
-          { label: report.title, href: `/r/${code}` },
+          { label: report.title, href: `/r/${code}?view=personal` },
           { label: `${fight.name} pull ${pull}`, href: `/r/${code}/${fight.id}` },
           { label: player.name },
         ]}

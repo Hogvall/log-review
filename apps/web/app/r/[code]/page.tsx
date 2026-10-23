@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import type { Fight } from "@log-review/wcl";
 import { ErrorPanel } from "@/components/error-panel";
 import { Breadcrumbs, Section } from "@/components/ui";
+import { ViewChooser } from "@/components/view-chooser";
 import type { AppView } from "@/components/view-nav";
 import { getOverview } from "@/lib/data";
 import { difficultyName, fightTime } from "@/lib/format";
@@ -23,13 +24,28 @@ export default async function ReportPage({
 }) {
   const { code } = await params;
   const { fight, view: viewParam, actor } = await searchParams;
-  const view: AppView = viewParam === "raid" ? "raid" : "personal";
+  const view: AppView | null = viewParam === "raid" || viewParam === "personal" ? viewParam : null;
 
   let report;
   try {
     report = await getOverview(code);
   } catch (error) {
     return <ErrorPanel error={error} />;
+  }
+  // First the choice of view, with any linked pull carried through.
+  if (!view) {
+    return (
+      <div className="space-y-5">
+        <div>
+          <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: report.title }]} />
+          <h1 className="text-3xl font-extrabold tracking-tight text-fg">{report.title}</h1>
+          <p className="text-sm text-muted">
+            {report.zone?.name} · {report.fights.length} boss {report.fights.length === 1 ? "pull" : "pulls"} · what do you want to look at?
+          </p>
+        </div>
+        <ViewChooser code={code} fight={fight} />
+      </div>
+    );
   }
   // Links that name a pull skip ahead: to its player list, or to the raid view of that pull.
   const linked = fight === "last" ? report.fights.at(-1) : fight ? report.fights.find((f) => f.id === Number(fight)) : undefined;
@@ -51,7 +67,7 @@ export default async function ReportPage({
   return (
     <div className="space-y-6">
       <div>
-        <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: report.title }]} />
+        <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: report.title, href: `/r/${code}` }, { label: view === "raid" ? "Raid leader" : "Personal improvement" }]} />
         <h1 className="text-2xl font-semibold text-fg">{report.title}</h1>
         <p className="text-sm text-muted">
           {report.zone?.name} ·{" "}

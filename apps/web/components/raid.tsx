@@ -7,6 +7,9 @@ import { type RaidScope, type RaidView, scopeParam } from "@/lib/raid";
 import { classColor, compact, difficultyName, fightTime, percent } from "@/lib/format";
 
 const th = "pb-1 pr-3 font-medium";
+
+/** "0.4%" rather than "0%" for shares under 1%, so a little avoidable damage doesn't read as none. */
+const smallPercent = (share: number) => percent(share, share > 0 && share < 0.01 ? 1 : 0);
 const theadClass = "text-left text-[11px] uppercase tracking-[0.07em] text-faint";
 
 export const scopeLabel = (view: Pick<RaidView, "scope" | "pulls">) => {
@@ -349,7 +352,7 @@ export function RaidDamageTable({ view, code, limit = 15 }: { view: RaidView; co
     <>
       <p className="mb-2 text-sm text-muted">
         {compact(damageTaken.total)} damage taken{perPull ? ` over ${damageTaken.pulls} pulls` : ""};{" "}
-        <span className="text-dmg">{percent(damageTaken.total ? damageTaken.avoidable / damageTaken.total : 0)} avoidable</span> (abilities most top
+        <span className="text-dmg">{smallPercent(damageTaken.total ? damageTaken.avoidable / damageTaken.total : 0)} avoidable</span> (abilities most top
         players take none of).
       </p>
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
@@ -469,7 +472,7 @@ export function DamageDonut({ view }: { view: RaidView }) {
   const avoidableShare = totals.avoidable / damageTaken.total;
   return (
     <div className="flex flex-wrap items-center gap-6">
-      <svg width="170" height="170" viewBox="0 0 42 42" role="img" aria-label={`Damage taken: ${percent(avoidableShare)} avoidable`} className="shrink-0">
+      <svg width="170" height="170" viewBox="0 0 42 42" role="img" aria-label={`Damage taken: ${smallPercent(avoidableShare)} avoidable`} className="shrink-0">
         <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--color-line)" strokeWidth="6" />
         {slices.map((s) =>
           s.share > 0 ? (
@@ -477,7 +480,7 @@ export function DamageDonut({ view }: { view: RaidView }) {
           ) : null,
         )}
         <text x="21" y="21" textAnchor="middle" className="fill-fg" style={{ font: "800 7px var(--font-sans)" }}>
-          {percent(avoidableShare)}
+          {smallPercent(avoidableShare)}
         </text>
         <text x="21" y="27" textAnchor="middle" className="fill-muted" style={{ font: "2.6px var(--font-mono)" }}>
           AVOIDABLE

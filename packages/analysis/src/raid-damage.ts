@@ -34,9 +34,14 @@ export type AvoidabilityLookup = Record<number, { classification: Avoidability }
 
 export interface RaidAbilityDamage {
   abilityId: number;
+  /** The tanks' label when tanks took most of it (tank busters), everyone else's otherwise. */
   classification: Avoidability | null;
   total: number;
   hits: number;
+  /** The part that was avoidable for whoever took it (tanks judged by the tanks' labels). */
+  avoidable: number;
+  /** Share of its damage that tanks took. */
+  tankShare: number;
   /** Share of all damage the raid took in these pulls. */
   share: number;
   /** Pulls in which anyone took it. */
@@ -74,7 +79,7 @@ export function raidDamageTaken(
   tankAvoidability: AvoidabilityLookup,
   tankIds: Set<number>,
 ): RaidDamageTaken {
-  const abilities = new Map<number, RaidAbilityDamage & { pullIds: Set<number>; byPlayer: Map<number, { total: number; hits: number }> }>();
+  const abilities = new Map<number, RaidAbilityDamage & { tankTotal: number; pullIds: Set<number>; byPlayer: Map<number, { total: number; hits: number }> }>();
   const players = new Map<number, RaidPlayerDamage & { pullIds: Set<number> }>();
   let total = 0;
   let avoidable = 0;
@@ -89,9 +94,10 @@ export function raidDamageTaken(
         const abilityId = Number(aid);
         const a =
           abilities.get(abilityId) ??
-          { abilityId, classification: avoidability[abilityId]?.classification ?? null, total: 0, hits: 0, share: 0, pulls: 0, players: [], pullIds: new Set(), byPlayer: new Map() };
+          { abilityId, classification: null, total: 0, hits: 0, avoidable: 0, tankShare: 0, tankTotal: 0, share: 0, pulls: 0, players: [], pullIds: new Set(), byPlayer: new Map() };
         a.total += d.total;
         a.hits += d.hits;
+        if (tankIds.has(playerId)) a.tankTotal += d.total;
         a.pullIds.add(pull.pullId);
         const ap = a.byPlayer.get(playerId) ?? { total: 0, hits: 0 };
         ap.total += d.total;
@@ -103,6 +109,7 @@ export function raidDamageTaken(
         p.total += d.total;
         if (lookup[abilityId]?.classification === "avoidable") {
           avoidable += d.total;
+          a.avoidable += d.total;
           p.avoidable += d.total;
           p.avoidableHits += d.hits;
         }
@@ -116,8 +123,11 @@ export function raidDamageTaken(
     total,
     avoidable,
     abilities: [...abilities.values()]
-      .map(({ pullIds, byPlayer, ...a }) => ({
+      .map(({ pullIds, byPlayer, tankTotal, ...a }) => ({
         ...a,
+        tankShare: a.total ? tankTotal / a.total : 0,
+        classification:
+          (a.total && tankTotal / a.total >= 0.5 ? tankAvoidability[a.abilityId] : avoidability[a.abilityId])?.classification ?? null,
         share: total ? a.total / total : 0,
         pulls: pullIds.size,
         players: [...byPlayer].map(([playerId, d]) => ({ playerId, ...d })).sort((x, y) => y.total - x.total),

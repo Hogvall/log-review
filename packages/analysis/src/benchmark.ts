@@ -222,3 +222,15 @@ export function tankAvoidability(
   }
   return out;
 }
+
+/** WCL logs every boss's (and add's) auto attack as ability 1, "Melee". */
+export const BOSS_MELEE_ID = 1;
+
+/**
+ * Boss melee is the tanks' job, and when a DPS or healer takes it the tank is almost always already dead, so
+ * it's never their mistake either. Labels it a tank mechanic for everyone, whatever the data says.
+ */
+export function meleeIsTankMechanic<T extends { classification: Avoidability }>(map: Record<string, T>): Record<string, T> {
+  const melee = map[BOSS_MELEE_ID];
+  return melee ? { ...map, [BOSS_MELEE_ID]: { ...melee, classification: "tank-mechanic" } } : map;
+}

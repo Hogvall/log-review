@@ -452,7 +452,12 @@ export function DamageDonut({ view }: { view: RaidView }) {
   const { damageTaken, abilities } = view;
   if (!damageTaken.total) return <p className="py-2 text-sm text-muted">No boss damage taken.</p>;
   const totals: Record<SliceKey, number> = { avoidable: 0, "raid-wide": 0, other: 0, unknown: 0 };
-  for (const a of damageTaken.abilities) totals[sliceOf(a.classification)] += a.total;
+  // The avoidable slice is what was avoidable for whoever took it; the rest goes by the ability's label.
+  for (const a of damageTaken.abilities) {
+    totals.avoidable += a.avoidable;
+    const rest = sliceOf(a.classification);
+    totals[rest === "avoidable" ? "other" : rest] += a.total - a.avoidable;
+  }
   // Circumference 100 at r=15.9, so dash lengths are percentages.
   let offset = 25;
   const slices = (Object.keys(SLICE) as SliceKey[]).map((k) => {

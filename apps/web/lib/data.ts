@@ -15,6 +15,9 @@ import {
   type PhaseSpan,
   type SpecBenchmark,
   type TimelineReview,
+  type TopTimeline,
+  type TopPotionUse,
+  type OpenerStep,
   aliveTime,
   buffUptimes,
   buildDeathStory,
@@ -34,6 +37,9 @@ import {
   isExecuteSpell,
   isRaidUtility,
   isUtilitySpell,
+  openerSteps,
+  potionUses,
+  topPotionUse,
   phaseSpans,
   reviewDefensives,
   reviewTimeline,
@@ -298,7 +304,7 @@ async function getPlayerData(code: string, fight: Fight, actorId: number): Promi
 }
 
 /** Avoidability for a boss and difficulty from the newest snapshot that has it. */
-async function getAvoidability(
+export async function getAvoidability(
   encounterId: number,
   difficulty: number,
 ): Promise<{ map: AvoidabilityMap; tankMap: AvoidabilityMap; week: string | null }> {
@@ -361,7 +367,7 @@ async function getBenchmark(
   encounterId: number,
   difficulty: number,
   specKey: string,
-): Promise<{ benchmark: SpecBenchmark; week: string; top: TopPlayer | null } | null> {
+): Promise<{ benchmark: SpecBenchmark; week: string; snapshotId: number; top: TopPlayer | null } | null> {
   const db = getDb();
   const [row] = await db
     .select({ data: benchmarks.data, snapshotId: benchmarks.snapshotId, week: snapshots.week })
@@ -407,6 +413,7 @@ async function getBenchmark(
   return {
     benchmark: row.data as SpecBenchmark,
     week: row.week,
+    snapshotId: row.snapshotId,
     top: top?.timeline
       ? {
           name: top.name,
@@ -417,6 +424,45 @@ async function getBenchmark(
         }
       : null,
   };
+}
+
+/** Every top player of the spec in a snapshot that has a stored cast timeline (database only, no WCL queries). */
+async function getTopTimelines(snapshotId: number, encounterId: number, difficulty: number, specKey: string): Promise<TopTimeline[]> {
+  const rows = await getDb()
+    .select({ rank: rankingEntries.rank, name: rankingEntries.name, durationMs: rankingEntries.durationMs, timeline: playerMetrics.timeline })
+    .from(rankingEntries)
+    .innerJoin(
+      playerMetrics,
+      and(
+        eq(playerMetrics.reportCode, rankingEntries.reportCode),
+        eq(playerMetrics.fightId, rankingEntries.fightId),
+        eq(playerMetrics.name, rankingEntries.name),
+        eq(playerMetrics.specKey, rankingEntries.specKey),
+      ),
+    )
+    .where(
+      and(
+        eq(rankingEntries.snapshotId, snapshotId),
+        eq(rankingEntries.encounterId, encounterId),
+        eq(rankingEntries.difficulty, difficulty),
+        eq(rankingEntries.specKey, specKey),
+      ),
+    )
+    .orderBy(rankingEntries.rank);
+  return rows.flatMap((r) => (r.timeline ? [{ rank: r.rank, name: r.name, durationMs: r.durationMs, casts: r.timeline as [number, number][] }] : []));
+}
+
+/** Top players compared in the opener and potion sections. */
+const TOP_TIMELINES = 15;
+/** Casts compared step by step in the opener. */
+const OPENER_STEPS = 16;
+
+export interface PotionReview {
+  /** Your combat potions over the pull. */
+  yours: [number, number][];
+  top: TopPotionUse | null;
+  /** Healthstones and health potions: yours, and the median per top player. */
+  healing: { you: number; topMedian: number | null };
 }
 
 export interface PlayerAnalysis {
@@ -442,6 +488,13 @@ export interface PlayerAnalysis {
   fixes: Fix[];
   benchmarkWeek: string | null;
   topPlayer: TopPlayer | null;
+  /** Up to 15 top players' whole-fight casts, best first. */
+  tops: TopTimeline[];
+  /** Your opener cast by cast next to what top players cast at the same step. */
+  openerSteps: OpenerStep[];
+  potions: PotionReview;
+  /** Movement, defensives and utility: shown in cast logs, left out of comparisons. */
+  utilityIds: number[];
   playerCasts: [number, number][];
   /** DPS cooldowns (and the combat potion) for the cooldown chart; no defensives or movement. */
   cooldownIds: number[];
@@ -466,6 +519,13 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
   const detail = [...details.tanks, ...details.healers, ...details.dps].find((p) => p.id === actorId);
   const specKey = detail?.icon ?? null;
   const bench = specKey && fight.difficulty ? await getBenchmark(fight.encounterID, fight.difficulty, specKey) : null;
+  const stored =
+    bench && specKey && fight.difficulty
+      ? (await getTopTimelines(bench.snapshotId, fight.encounterID, fight.difficulty, specKey)).slice(0, TOP_TIMELINES)
+      : [];
+  // Snapshots from before timelines were stored for everyone only have the #1's.
+  const tops: TopTimeline[] =
+    stored.length || !bench?.top ? stored : [{ rank: 1, name: bench.top.name, durationMs: bench.top.durationMs, casts: bench.top.timeline }];
 
   const analysis = buildPlayerReport({
     playerId: actorId,
@@ -516,6 +576,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     ...new Set([
       ...(bench ? [...Object.keys(bench.benchmark.cpm), ...Object.keys(bench.benchmark.buffUptime)].map(Number) : []),
       ...topOpener.map(([, id]) => id),
+      ...tops.flatMap((t) => t.casts.map(([, id]) => id)),
     ]),
   ].filter((id) => !abilities[id]);
   if (missing.length) {
@@ -553,7 +614,7 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     : null;
 
   // Players use different combat potions; compare when the first one was drunk, whichever it was.
-  const potionIds = [...new Set([...perf.casts, ...topOpener].map(([, id]) => id))].filter(
+  const potionIds = [...new Set([...perf.casts, ...topOpener, ...tops.flatMap((t) => t.casts)].map(([, id]) => id))].filter(
     (id) => abilities[id] && isCombatPotion(abilities[id]!.name, abilities[id]!.icon),
   );
   // DPS cooldowns: cast at most ~2 times a minute by top players, not movement, defensives or utility.
@@ -617,6 +678,22 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     });
   }
 
+  // The opener step by step and potions, against every top player with a stored timeline.
+  const potionSet = new Set(potionIds);
+  const healingConsumables = (casts: [number, number][]) => {
+    const c = countConsumables(casts, abilityNames);
+    return c.healthstones + c.healthPotions;
+  };
+  const topHealing = tops.map((t) => healingConsumables(t.casts)).sort((a, b) => a - b);
+  const potions: PotionReview = {
+    yours: potionUses(perf.casts, potionSet),
+    top: tops.length ? topPotionUse(tops, potionSet) : null,
+    healing: { you: healingConsumables(perf.casts), topMedian: topHealing.length ? topHealing[Math.floor(topHealing.length / 2)]! : null },
+  };
+  const opener = tops.length
+    ? openerSteps(perf.casts, tops, { windowMs: OPENER_MS, steps: OPENER_STEPS, ignore: new Set([...utilityIds, ...hiddenIds]) })
+    : [];
+
   // Boss tips for every ability that hit this player.
   const boss = getBoss(fight.encounterID);
   const tips: Record<number, AbilityTip> = {};
@@ -652,6 +729,10 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     fixes: rankFixes(analysis, comparison),
     benchmarkWeek: bench?.week ?? null,
     topPlayer: bench?.top ?? null,
+    tops,
+    openerSteps: opener,
+    potions,
+    utilityIds: [...utilityIds, ...hiddenIds],
     playerCasts: perf.casts,
     cooldownIds: [...dpsCooldowns.map((a) => a.abilityId), ...potionIds.slice(0, 1)],
     snapshotWeek: avoidability.week,

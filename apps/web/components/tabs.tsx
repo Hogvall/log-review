@@ -19,9 +19,9 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
       const id = window.location.hash.slice(1);
       if (tabs.some((t) => t.id === id)) setActive(id);
       // Links to a specific death (#death-3) or the raid deaths list live in the deaths tab.
-      else if (id.startsWith("death-") || id === "raid-deaths") setActive("deaths");
-      // The cooldowns tab became part of the timeline tab.
-      else if (id === "cooldowns" && tabs.some((t) => t.id === "timeline")) setActive("timeline");
+      else if ((id.startsWith("death-") || id === "raid-deaths") && tabs.some((t) => t.id === "deaths")) setActive("deaths");
+      // The old timeline tab is now the opener tab.
+      else if (id === "timeline" && tabs.some((t) => t.id === "opener")) setActive("opener");
     };
     fromHash();
     window.addEventListener("hashchange", fromHash);

@@ -159,7 +159,7 @@ export function PerfFindingCard({
           .map((g) => `${fightTime(g.startMs)} (${Math.round((g.endMs - g.startMs) / 1000)}s)`)
           .join(", ")}.`,
         finding.estDpsGain,
-        "Check the Timeline tab for when it happened; keep casting through movement and mechanics where you can.",
+        "Check the Every cast tab for when it happened; keep casting through movement and mechanics where you can.",
       );
     case "low-target-share": {
       const t = finding.target;
@@ -253,8 +253,8 @@ export function RotationTable({ comparison, abilities }: { comparison: Compariso
                   diff={comparison.activeTime.median ? comparison.activeTime.player / comparison.activeTime.median - 1 : null}
                 />
                 {comparison.activeTime.status === "low" && comparison.findings.some((f) => f.kind === "idle-time") && (
-                  <a href="#timeline" className={`ml-1.5 text-xs ${linkClass}`} title="Your idle stretches, with timestamps, are in the Timeline tab">
-                    see Timeline
+                  <a href="#casts" className={`ml-1.5 text-xs ${linkClass}`} title="Your idle stretches show as gaps in the Every cast tab">
+                    see Every cast
                   </a>
                 )}
               </td>

@@ -11,7 +11,7 @@ Paste a Warcraft Logs report and find out what killed you, whether you could hav
 
 ## The website
 
-The site has two views, picked on the home page before pasting a link and switchable at the top of every page (each page links to the closest page of the other view):
+The look is a dark "raid HUD": slate panels, gold for cooldowns and the active view, coral for mistakes, Inter Tight for text and Space Mono for numbers and times. The site has two views, picked on the home page before pasting a link and switchable in the header of every page (each links to the closest page of the other view, worked out from the URL):
 
 - **Personal improvement:** your own play next to the top players of your spec: opener, cooldowns, potions and rotation.
 - **Raid leader:** the raid as a whole, or one player at a time, over one pull, all wipes, the kill or all pulls.
@@ -22,13 +22,17 @@ The site has two views, picked on the home page before pasting a link and switch
 ### Personal improvement
 
 3. **Pick yourself** (`/r/<code>/<fight>`). Players are grouped by role. The site remembers your character and offers "Continue as …".
-4. **Player report** (`/r/<code>/<fight>/<actor>`, shareable). DPS-only: deaths and damage taken live in the raid view (the header links there when you died). A **Cast list / Timeline** switch (remembered per browser) changes how the tabs show casts: a timestamped list ("0:01.2 Fireball") or marks on a time axis.
-   - **Rotation mistakes:** every DPS finding, biggest estimated gain first.
-   - **Opener:** your precast, then your first 16 casts in the first 30s (movement and defensives left out) step by step next to what most of the top 15 cast at the same step (with the share who did) and #1's cast. A step is marked when your spell is neither the most common one nor one a quarter of top players cast there. Timeline mode shows icon strips for you and the top three. Below: first use of each cooldown vs the top median and #1.
-   - **Cooldowns:** each DPS cooldown's casts vs how many top players' pace fits in your time alive and #1's count; then every cooldown cast as a merged list with #1's, or as one lane per cooldown.
-   - **Potions:** combat potions drunk, when (1st and 2nd) and which, next to the top players' share who drink two, their median times and the most common potion; healthstones and health potions vs the top median. Then every top player's potions as a table, or as lanes on the fight's time axis.
-   - **Rotation:** casts per minute, activity per phase, buff uptime and targets (below).
-   - **Every cast:** the whole fight, as a merged log with #1, or as one lane per spell like Warcraft Logs' timeline (your casts on top, #1's faded below, cooldowns highlighted).
+4. **Player report** (`/r/<code>/<fight>/<actor>`, shareable). DPS-only: deaths and damage taken live in the raid view (a banner links there when you died).
+   - **Top:** a gauge of your DPS vs top players, a one-line verdict (the two findings worth the most), and meters for DPS, time casting, potions and item level.
+   - **Your next three pulls:** the three findings worth the most as cards, with the spell's icon and estimated gain; the rest are under "More rotation mistakes".
+   - **Timeline**, in five styles picked with a switch (remembered per browser):
+     - **Cast list:** every cast of the pull next to #1's ("0:01.2 Fireball").
+     - **A · Icon lanes:** the first 15s as spell icons for you and the top three, with a gold band while a cooldown runs.
+     - **B · Side by side:** time runs down; your cast at each opener step on the left, the top 15's most common cast at the same step on the right (coral where most top players did something else). Steps skip movement and defensives; a step is fine when a quarter of top players cast the same.
+     - **C · Availability:** each DPS cooldown over the pull: gold while it runs (its buff's average length), hatched coral while it was ready and unused. Its recharge isn't in the log, so "ready" goes by top players' pace: their median first use, then their average time between casts after each of yours (`cooldownAvailability`). #1's uses are the thin line underneath.
+     - **D · Event track:** the boss's phases as a band with pins for cooldown uses (the first flagged when late), potions, a missing second potion, the two longest idle stretches and deaths.
+   - **Potions:** your combat potions and every top player's as icon lanes, with a dashed marker where top players drink one you didn't; the most common potion, and healthstones and health potions vs the top median.
+   - **Details** tabs: Opener (precast, the step-by-step table, first use of each cooldown), Cooldowns (uses vs what fits vs #1, with times), Rotation (casts per minute, activity per phase, buffs, targets) and Every spell (one lane per spell, like Warcraft Logs' timeline).
 
    Top players' timelines come from the snapshot (`player_metrics.timeline`, no WCL queries); snapshots from before timelines were stored for everyone fall back to #1 only.
 
@@ -37,10 +41,11 @@ The site has two views, picked on the home page before pasting a link and switch
 5. **Raid pages** (`/r/<code>/raid/<encounter>-<difficulty>?scope=all|wipes|kill|<fightId>`). The scope picker chooses all pulls, all wipes, the kill or one pull (pulls under 30s are skipped as resets except when picked on their own). Two pages:
    - **Whole raid:**
      - **Pull strip:** boss health left in each pull of the scope; click one to open it.
-     - **Is the damage enough?** For wipes: from the 3 furthest wipes (or the picked pull), damage to the bosses (adds excluded; council bosses together), boss health estimated from damage ÷ health removed, and when the boss would die at that damage rate, drawn against the kill times of the kills the crawler has downloaded: "enough" if it would die by the slower quarter of kills (75th percentile), "close" within 10%, otherwise "short" with how much more damage is needed. For a kill: its length next to other raids' kills.
+     - **Is the damage enough?** Drawn as the boss's health bar at the time the slower quarter of kills finish. For wipes: from the 3 furthest wipes (or the picked pull), damage to the bosses (adds excluded; council bosses together), boss health estimated from damage ÷ health removed, and when the boss would die at that damage rate, drawn against the kill times of the kills the crawler has downloaded: "enough" if it would die by the slower quarter of kills (75th percentile), "close" within 10%, otherwise "short" with how much more damage is needed. For a kill: its length next to other raids' kills.
      - **What people die to:** every death put down to what did the most damage in its ~6s death window (from WCL's Deaths table; not the killing blow). Only deaths that mattered are counted (before the wipe, or among its first deaths). Per cause: deaths, pulls, who, the mechanic it often comes with, and deaths per pull in the first vs second half of the scope (getting better / worse).
      - **What the raid takes damage from:** each boss ability's damage over the scope with its avoidability label, hits per pull, and the three players it hit hardest.
-     - **Who takes the most avoidable damage:** avoidable damage per pull, per player. Tanks are judged by the tanks' labels.
+     - **Where the raid's damage taken goes:** a donut of the damage by avoidability (avoidable, raid-wide, unavoidable/targeted/tank, no data) and the five biggest abilities.
+     - **Raid frames:** one tile per player in class color, filled red by their avoidable damage per pull (against the worst player), with deaths that mattered; click one for that player. Tanks are judged by the tanks' labels.
    - **Players** (`…/players`): everyone in the scope by role, with DPS vs top players of their spec with the closest kill lengths (from the damage pull), deaths that mattered and avoidable damage per pull.
    - **One player** (`…/players/<actor>`): pull by pull (result, when and to what they died, avoidable damage), their deaths, and damage taken by ability. With one pull picked, the full death stories and damage table:
    - **Deaths (one pull):** a raid timeline with the wipe highlighted, plus a **death story** for each death:

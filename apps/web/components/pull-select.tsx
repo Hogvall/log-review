@@ -11,7 +11,7 @@ export function PullSelect({ baseHref, pulls, value }: { baseHref: string; pulls
       <select
         value={value ?? ""}
         onChange={(e) => e.target.value && router.push(`${baseHref}?scope=${e.target.value}`)}
-        className={`num border bg-panel px-2 py-1.5 text-xs ${value ? "border-fg text-fg" : "border-line text-muted"} focus:outline-none`}
+        className={`num border bg-panel px-2 py-1.5 text-xs ${value ? "border-gold text-gold" : "border-line text-muted"} focus:outline-none`}
       >
         <option value="">One pull…</option>
         {pulls.map((p) => (

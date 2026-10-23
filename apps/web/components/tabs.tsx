@@ -41,7 +41,7 @@ export function Tabs({ tabs }: { tabs: Tab[] }) {
               history.replaceState(null, "", `#${t.id}`);
             }}
             className={`-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] ${
-              active === t.id ? "border-fg text-fg" : "border-transparent text-faint hover:text-muted"
+              active === t.id ? "border-gold text-fg" : "border-transparent text-muted hover:text-fg"
             }`}
           >
             {t.label}

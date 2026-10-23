@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { type ReactNode, Suspense } from "react";
+import { Inter_Tight, Space_Mono } from "next/font/google";
 import Link from "next/link";
 import Script from "next/script";
+import { ViewNav } from "@/components/view-nav";
 import "./globals.css";
 
-const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-sans" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-plex-mono" });
+const sans = Inter_Tight({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-inter-tight" });
+const mono = Space_Mono({ subsets: ["latin"], weight: ["400", "700"], variable: "--font-space-mono" });
 
 export const metadata = {
   title: "Raid Log Coach",
@@ -16,16 +17,19 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body className="min-h-screen font-sans text-[15px] text-fg antialiased">
-        <header className="border-b border-line bg-panel">
-          <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-2.5">
-            <Link href="/" className="text-sm font-semibold uppercase tracking-[0.07em] text-fg">
-              Raid Log Coach
+        <header className="border-b border-line bg-[#121a2c]">
+          <div className="mx-auto grid max-w-6xl grid-cols-1 items-stretch px-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+            <Link href="/" className="py-3 leading-tight">
+              <span className="block text-lg font-extrabold tracking-tight text-fg">Raid Log Coach</span>
+              <span className="text-sm text-muted">The Venomous Abyss · Mythic</span>
             </Link>
-            <span className="text-xs text-faint">The Venomous Abyss</span>
+            <Suspense fallback={null}>
+              <ViewNav />
+            </Suspense>
           </div>
         </header>
-        <main className="mx-auto max-w-5xl px-4 py-6">{children}</main>
-        <footer className="mx-auto max-w-5xl border-t border-line px-4 py-4 text-xs text-faint">
+        <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+        <footer className="mx-auto max-w-6xl border-t border-line px-4 py-4 text-xs text-faint">
           Logs from{" "}
           <a className="underline decoration-line underline-offset-4 hover:text-muted" href="https://www.warcraftlogs.com">
             Warcraft Logs

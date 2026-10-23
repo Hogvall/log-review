@@ -2,8 +2,7 @@ import Link from "next/link";
 import type { DeathCause, DpsCheck, RaidAbilityDamage } from "@log-review/analysis";
 import { PullSelect } from "./pull-select";
 import { AvoidabilityBadge } from "./report";
-import { Ability, Breadcrumbs, linkClass } from "./ui";
-import { ViewNav } from "./view-nav";
+import { Ability, Breadcrumbs, linkClass, textOn } from "./ui";
 import { type RaidScope, type RaidView, scopeParam } from "@/lib/raid";
 import { classColor, compact, difficultyName, fightTime, percent } from "@/lib/format";
 
@@ -24,15 +23,13 @@ export function RaidHeader({ view, code, page, actor }: { view: RaidView; code: 
   const base = `/r/${code}/raid/${boss}${page === "players" ? `/players${actor ? `/${actor.id}` : ""}` : ""}`;
   const q = `?scope=${scopeParam(view.scope)}`;
   const pull = view.scope.kind === "pull" ? view.scope.fightId : null;
-  // The personal view of the same thing: this player's pull, the pull's player list, or the report.
-  const personalHref = pull ? (actor ? `/r/${code}/${pull}/${actor.id}` : `/r/${code}/${pull}`) : `/r/${code}`;
   const chip = (scope: RaidScope, label: string) => (
     <Link
       key={label}
       href={`${base}?scope=${scopeParam(scope)}`}
       aria-current={sameScope(scope, view.scope) ? "true" : undefined}
       className={`border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] ${
-        sameScope(scope, view.scope) ? "border-fg bg-fg text-ink" : "border-line text-fg hover:border-fg"
+        sameScope(scope, view.scope) ? "border-gold bg-gold text-ink" : "border-line text-fg hover:border-gold"
       }`}
     >
       {label}
@@ -49,7 +46,6 @@ export function RaidHeader({ view, code, page, actor }: { view: RaidView; code: 
           ...(actor ? [{ label: actor.name }] : []),
         ]}
       />
-      <ViewNav active="raid" personalHref={personalHref} raidHref={`${base}${q}`} />
       <h1 className="text-2xl font-semibold text-fg">
         {actor ? `${actor.name} on ${view.name}` : view.name} <span className="text-muted">{difficultyName(view.difficulty)}</span>
       </h1>
@@ -82,7 +78,7 @@ export function RaidHeader({ view, code, page, actor }: { view: RaidView; code: 
             href={t.href}
             aria-current={page === t.id ? "page" : undefined}
             className={`-mb-px border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.07em] ${
-              page === t.id ? "border-fg text-fg" : "border-transparent text-faint hover:text-muted"
+              page === t.id ? "border-gold text-fg" : "border-transparent text-muted hover:text-fg"
             }`}
           >
             {t.label}
@@ -239,8 +235,8 @@ export function DamageCheck({ view, code }: { view: RaidView; code: string }) {
   const ref = check.reference;
   const pullNo = (id: number) => pulls.find((p) => p.id === id)?.pull;
   const firstDeath = deaths.firstDeathMedianMs;
-  const span = Math.max(check.projectedKillMs, ref?.p75 ?? 0, ...check.pulls.map((p) => p.durationMs)) * 1.08;
-  const at = (ms: number) => `${(ms / span) * 100}%`;
+  // Boss health removed at a steady rate: what's left when the slower quarter of kills finish.
+  const left = ref ? Math.max(0, 1 - ref.p75 / check.projectedKillMs) : 0;
   return (
     <>
       <p className={`text-lg font-semibold ${v.tone}`}>{v.title}</p>
@@ -265,25 +261,43 @@ export function DamageCheck({ view, code }: { view: RaidView; code: string }) {
         )}
       </p>
 
-      {/* Projected kill time against the kill-time bar. */}
-      <div className="mt-4 max-w-2xl" aria-hidden>
-        <div className="relative h-8 border-b border-line">
-          {ref && <div className="absolute inset-y-0 bg-heal/15" style={{ left: 0, width: at(ref.p75) }} title="Where kills land" />}
-          {ref && <div className="absolute inset-y-0 w-px bg-heal" style={{ left: at(ref.median) }} />}
-          {firstDeath != null && <div className="absolute inset-y-0 w-px bg-dmg" style={{ left: at(firstDeath) }} />}
-          <div className={`absolute top-1 bottom-1 w-[3px] -translate-x-1/2 ${v.bar}`} style={{ left: at(check.projectedKillMs) }} />
-        </div>
-        <div className="relative mt-1 h-4 text-[11px] text-faint">
-          {ref && (
-            <span className="num absolute -translate-x-1/2 text-heal" style={{ left: at(ref.median) }}>
-              kills {fightTime(ref.median)}
+      {/* The boss's health bar at the time kills usually finish, at this damage. */}
+      {ref && (
+        <div className="mt-4">
+          <div className="flex flex-wrap items-baseline gap-3 text-sm">
+            <span className="font-bold">{view.name}</span>
+            <span className={v.tone}>
+              {left > 0 ? `${percent(left)} left at ${fightTime(ref.p75)}` : `dead by ${fightTime(check.projectedKillMs)}`}
             </span>
-          )}
-          <span className={`num absolute -translate-x-1/2 ${v.tone}`} style={{ left: at(check.projectedKillMs) }}>
-            you {fightTime(check.projectedKillMs)}
-          </span>
+          </div>
+          <div
+            className="relative mt-1.5 h-7 border-2 border-black bg-[#2a1215] shadow-[0_0_0_1px_#5a2a2e]"
+            role="img"
+            aria-label={`Boss at ${percent(left)} health when kills usually finish`}
+          >
+            <div className="absolute inset-y-0 left-0 bg-gradient-to-b from-[#e24a4a] to-[#9b1d1d]" style={{ width: percent(left, 1) }} />
+            {Array.from({ length: 9 }, (_, i) => (
+              <div key={i} className="absolute inset-y-0 w-px bg-black/60" style={{ left: `${(i + 1) * 10}%` }} />
+            ))}
+            <span className="absolute top-0.5 right-2.5 text-sm font-extrabold text-white">
+              {check.neededIncrease != null && check.neededIncrease > 0 ? `needs +${percent(check.neededIncrease)} boss damage` : "enough damage"}
+            </span>
+          </div>
         </div>
-        {firstDeath != null && <p className="mt-1 text-[11px] text-faint"><span className="text-dmg">|</span> first death that matters, typically</p>}
+      )}
+      <div className="mt-3.5 grid gap-3 sm:grid-cols-3">
+        <div className="bg-raised px-3 py-2.5">
+          <div className="text-xs uppercase tracking-[0.08em] text-muted">Projected kill</div>
+          <div className={`num text-2xl font-bold ${v.tone}`}>{fightTime(check.projectedKillMs)}</div>
+        </div>
+        <div className="bg-raised px-3 py-2.5">
+          <div className="text-xs uppercase tracking-[0.08em] text-muted">Kills (median)</div>
+          <div className="num text-2xl font-bold text-heal">{ref ? fightTime(ref.median) : "–"}</div>
+        </div>
+        <div className="bg-raised px-3 py-2.5">
+          <div className="text-xs uppercase tracking-[0.08em] text-muted">First death that matters</div>
+          <div className="num text-2xl font-bold">{firstDeath != null ? fightTime(firstDeath) : "–"}</div>
+        </div>
       </div>
 
       <div className="-mx-4 mt-3 overflow-x-auto px-4 sm:mx-0 sm:px-0">
@@ -386,30 +400,96 @@ export function RaidDamageTable({ view, code, limit = 15 }: { view: RaidView; co
   );
 }
 
-/** Who takes the most avoidable damage. */
-export function AvoidableByPlayer({ view, code, limit = 8 }: { view: RaidView; code: string; limit?: number }) {
-  const rows = view.players.filter((p) => p.avoidable > 0).sort((a, b) => b.avoidablePerPull - a.avoidablePerPull).slice(0, limit);
-  if (!rows.length) return <p className="py-2 text-sm text-heal">Nobody took avoidable damage.</p>;
-  const max = rows[0]!.avoidablePerPull || 1;
+/** Raid frames: one tile per player in class color, filled red by their avoidable damage per pull. */
+export function RaidFrames({ view, code }: { view: RaidView; code: string }) {
+  const players = [...view.players].sort((a, b) => ROLE_ORDER[a.role ?? "none"]! - ROLE_ORDER[b.role ?? "none"]! || a.name.localeCompare(b.name));
+  if (!players.length) return <p className="py-2 text-sm text-muted">No players in these pulls.</p>;
+  const max = Math.max(1, ...players.map((p) => p.avoidablePerPull));
   const href = (id: number) => `/r/${code}/raid/${view.encounterId}-${view.difficulty}/players/${id}?scope=${scopeParam(view.scope)}`;
   return (
-    <ul className="max-w-2xl">
-      {rows.map((p) => (
-        <li key={p.id} className="border-b border-line/40">
-          <Link href={href(p.id)} className="grid grid-cols-[9rem_minmax(0,1fr)_5rem] items-center gap-3 py-1.5 text-sm hover:bg-panel">
-            <span className="truncate font-medium" style={{ color: classColor(p.classSlug) }}>
-              {p.name}
+    <>
+      <p className="mb-3 text-sm text-muted">
+        Red fill = avoidable damage{view.scoped.length > 1 ? " per pull" : ""}, against the worst player. ☠ = deaths that mattered. Click a frame for that player.
+      </p>
+      <ul className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-5">
+        {players.map((p) => {
+          const color = classColor(p.classSlug);
+          const ink = textOn(color);
+          return (
+            <li key={p.id}>
+              <Link
+                href={href(p.id)}
+                title={`${p.name}: ${compact(p.avoidablePerPull)} avoidable${view.scoped.length > 1 ? " per pull" : ""}, ${p.avoidableHits} hits, ${p.deathsMattered} deaths that mattered`}
+                className="relative block h-12 overflow-hidden border border-black hover:outline hover:outline-2 hover:outline-gold"
+                style={{ background: color, color: ink }}
+              >
+                <span className="absolute inset-y-0 left-0 bg-[rgba(200,30,30,0.85)]" style={{ width: `${(p.avoidablePerPull / max) * 100}%` }} />
+                <span className="absolute top-1 left-2 right-2 truncate text-[13px] font-bold">{p.name}</span>
+                <span className="num absolute bottom-1 left-2 text-[11px] font-bold">{p.avoidable ? compact(p.avoidablePerPull) : "0"}</span>
+                {p.deathsMattered > 0 && <span className="absolute right-2 bottom-1 text-xs font-extrabold">☠{p.deathsMattered}</span>}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+const ROLE_ORDER: Record<string, number> = { tank: 0, healer: 1, dps: 2, none: 3 };
+
+const SLICE = {
+  avoidable: { label: "avoidable", color: "var(--color-dmg)" },
+  "raid-wide": { label: "raid-wide", color: "var(--color-gold)" },
+  other: { label: "unavoidable, targeted or tank", color: "#3a4766" },
+  unknown: { label: "no top-player data", color: "var(--color-line)" },
+} as const;
+type SliceKey = keyof typeof SLICE;
+const sliceOf = (c: RaidAbilityDamage["classification"]): SliceKey => (c === "avoidable" || c === "raid-wide" ? c : c ? "other" : "unknown");
+
+/** Where the raid's damage taken goes: a donut by avoidability, and the biggest abilities. */
+export function DamageDonut({ view }: { view: RaidView }) {
+  const { damageTaken, abilities } = view;
+  if (!damageTaken.total) return <p className="py-2 text-sm text-muted">No boss damage taken.</p>;
+  const totals: Record<SliceKey, number> = { avoidable: 0, "raid-wide": 0, other: 0, unknown: 0 };
+  for (const a of damageTaken.abilities) totals[sliceOf(a.classification)] += a.total;
+  // Circumference 100 at r=15.9, so dash lengths are percentages.
+  let offset = 25;
+  const slices = (Object.keys(SLICE) as SliceKey[]).map((k) => {
+    const share = (totals[k] / damageTaken.total) * 100;
+    const slice = { key: k, share, offset };
+    offset -= share;
+    return slice;
+  });
+  const avoidableShare = totals.avoidable / damageTaken.total;
+  return (
+    <div className="flex flex-wrap items-center gap-6">
+      <svg width="170" height="170" viewBox="0 0 42 42" role="img" aria-label={`Damage taken: ${percent(avoidableShare)} avoidable`} className="shrink-0">
+        <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--color-line)" strokeWidth="6" />
+        {slices.map((s) =>
+          s.share > 0 ? (
+            <circle key={s.key} cx="21" cy="21" r="15.9" fill="none" stroke={SLICE[s.key].color} strokeWidth="6" strokeDasharray={`${s.share} ${100 - s.share}`} strokeDashoffset={s.offset} />
+          ) : null,
+        )}
+        <text x="21" y="21" textAnchor="middle" className="fill-fg" style={{ font: "800 7px var(--font-sans)" }}>
+          {percent(avoidableShare)}
+        </text>
+        <text x="21" y="27" textAnchor="middle" className="fill-muted" style={{ font: "2.6px var(--font-mono)" }}>
+          AVOIDABLE
+        </text>
+      </svg>
+      <div className="min-w-0 flex-[1_1_260px]">
+        {damageTaken.abilities.slice(0, 5).map((a) => (
+          <div key={a.abilityId} className="grid grid-cols-[12px_minmax(0,1fr)_4.5rem] items-center gap-2.5 border-b border-line py-2">
+            <span className="h-3 w-3" style={{ background: SLICE[sliceOf(a.classification)].color }} />
+            <span className="min-w-0 truncate">
+              <Ability id={a.abilityId} name={abilities[a.abilityId]?.name} icon={abilities[a.abilityId]?.icon} />{" "}
+              <span className="text-[13px] text-muted">{SLICE[sliceOf(a.classification)].label}</span>
             </span>
-            <span className="h-2 bg-line">
-              <span className="block h-full bg-dmg" style={{ width: `${(p.avoidablePerPull / max) * 100}%` }} />
-            </span>
-            <span className="num text-right text-fg/85" title={`${p.avoidableHits} avoidable hits in total`}>
-              {compact(p.avoidablePerPull)}
-              {view.scoped.length > 1 && <span className="text-faint">/pull</span>}
-            </span>
-          </Link>
-        </li>
-      ))}
-    </ul>
+            <span className="num text-right">{compact(a.total)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -1,5 +1,5 @@
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
-import { AvoidableByPlayer, DamageCheck, DeathCauses, PullStrip, RaidDamageTable, RaidHeader } from "@/components/raid";
+import { DamageCheck, DamageDonut, DeathCauses, PullStrip, RaidDamageTable, RaidFrames, RaidHeader } from "@/components/raid";
 import { Section } from "@/components/ui";
 import { type RaidView, getRaidView, parseScope } from "@/lib/raid";
 
@@ -21,20 +21,29 @@ export default async function RaidPage({ params, searchParams }: { params: Promi
   if (!view || !view.scoped.length) return <NotFoundPanel what={view ? "Pull" : "Boss"} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <RaidHeader view={view} code={code} page="raid" />
-      <PullStrip view={view} code={code} />
+      {view.scoped.length > 1 && (
+        <Section title="Pulls" meta="boss health left at the end of each pull; click one to open it">
+          <PullStrip view={view} code={code} />
+        </Section>
+      )}
       <Section title="Is the damage enough?">
         <DamageCheck view={view} code={code} />
       </Section>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Section title="Where the raid's damage taken goes">
+          <DamageDonut view={view} />
+        </Section>
+        <Section title="Raid frames · avoidable damage">
+          <RaidFrames view={view} code={code} />
+        </Section>
+      </div>
       <Section title="What people die to">
         <DeathCauses view={view} code={code} />
       </Section>
-      <Section title="What the raid takes damage from">
+      <Section title="Every ability the raid took damage from">
         <RaidDamageTable view={view} code={code} />
-      </Section>
-      <Section title="Who takes the most avoidable damage" meta="click a name for their deaths and hits">
-        <AvoidableByPlayer view={view} code={code} />
       </Section>
     </div>
   );

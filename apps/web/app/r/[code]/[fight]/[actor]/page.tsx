@@ -1,15 +1,27 @@
-import type { ReactNode } from "react";
 import Link from "next/link";
-import { OPENER_MS, type TopTimeline } from "@log-review/analysis";
-import { DisplayModeProvider, DisplaySwitch } from "@/components/display-mode";
+import type { TopTimeline } from "@log-review/analysis";
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { BuffTable, PerfFindingCard, RotationTable, TargetTable } from "@/components/performance";
-import { CastLog, CooldownCompare, OpenerCompare, PotionCompare } from "@/components/personal";
+import {
+  AvailabilityView,
+  CastListView,
+  CooldownTable,
+  EventTrackView,
+  Hero,
+  IconLanesView,
+  NextPulls,
+  OpenerTable,
+  PotionLanes,
+  SideBySideView,
+  SpellLanes,
+  type TrackPin,
+  summarizeFinding,
+} from "@/components/personal";
 import { RememberCharacter } from "@/components/player-picker";
 import { FirstUseTable, PhaseActivityTable, PullStart } from "@/components/timeline";
+import { TimelineSwitch } from "@/components/timeline-switch";
 import { type Tab, Tabs } from "@/components/tabs";
 import { Breadcrumbs, Section, linkClass } from "@/components/ui";
-import { ViewNav } from "@/components/view-nav";
 import { type PlayerAnalysis, getPlayerAnalysis } from "@/lib/data";
 import { classColor, compact, difficultyName, fightTime, percent, specLabel } from "@/lib/format";
 
@@ -17,19 +29,12 @@ export const dynamic = "force-dynamic";
 
 const weekLabel = (week: string) => week.split("-test")[0];
 
-function Stat({ label, value, sub, tone }: { label: string; value: ReactNode; sub?: ReactNode; tone?: "good" | "bad" }) {
-  return (
-    <div className="border-l border-line px-4 py-2 first:border-l-0 first:pl-0">
-      <div className="text-[11px] uppercase tracking-[0.07em] text-faint">{label}</div>
-      <div className={`num text-xl ${tone === "bad" ? "text-dmg" : tone === "good" ? "text-heal" : "text-fg"}`}>{value}</div>
-      {sub && <div className="text-xs text-muted">{sub}</div>}
-    </div>
-  );
-}
-
 function NoBenchmark() {
   return <p className="py-2 text-sm text-muted">No top-player data for this spec and boss yet. It updates weekly.</p>;
 }
+
+/** "More Phoenix Flames" reads as "more Phoenix Flames" mid-sentence; spell names keep their capitals. */
+const midSentence = (title: string) => (/^(More|Use|Keep|Cast|Fewer)\b/.test(title) ? title[0]!.toLowerCase() + title.slice(1) : title);
 
 export default async function PlayerPage({ params }: { params: Promise<{ code: string; fight: string; actor: string }> }) {
   const { code, fight: fightParam, actor: actorParam } = await params;
@@ -42,21 +47,74 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
   }
   if (!result) return <NotFoundPanel what="Player or pull" />;
 
-  const { report, fight, player, analysis, consumables, comparison, timeline, abilities, benchmarkWeek, topPlayer, tops, playerCasts, cooldownIds } = result;
+  const { report, fight, player, analysis, comparison, timeline, abilities, benchmarkWeek, topPlayer, tops, playerCasts, cooldownIds, potions } = result;
   const durationMs = fight.endTime - fight.startTime;
   const pull = report.fights.filter((f) => f.encounterID === fight.encounterID && f.difficulty === fight.difficulty && f.id <= fight.id).length;
   const spec = specLabel(player.specKey, player.classSlug);
   const boss = `${fight.name} ${difficultyName(fight.difficulty)}`;
   const amount = comparison?.amount?.player ?? null;
   const findings = comparison?.findings ?? [];
+  const summaries = findings.map((f) => summarizeFinding(f, abilities, amount));
   const count = (kinds: string[]) => findings.filter((f) => kinds.includes(f.kind)).length;
   const badge = (n: number) => (n ? String(n) : undefined);
-  const raidHref = fight.difficulty
-    ? `/r/${code}/raid/${fight.encounterID}-${fight.difficulty}/players/${player.id}?scope=${fight.id}`
-    : `/r/${code}?view=raid`;
+  const raidHref = fight.difficulty ? `/r/${code}/raid/${fight.encounterID}-${fight.difficulty}/players/${player.id}?scope=${fight.id}` : `/r/${code}?view=raid`;
   const myDeaths = analysis.deaths.filter((d) => d.category === "early" || d.category === "wipe-start");
   // The #1 player to compare cast by cast with: the first stored top timeline, or the benchmark's #1.
   const top1: TopTimeline | null = tops[0] ?? (topPlayer ? { rank: 1, name: topPlayer.name, durationMs: topPlayer.durationMs, casts: topPlayer.timeline } : null);
+  const span = Math.max(durationMs, top1?.durationMs ?? 0);
+
+  // The verdict: the two findings worth the most.
+  const worth = summaries.filter((s) => s.gainShare != null).slice(0, 2);
+  const worthTotal = worth.reduce((sum, s) => sum + s.gainShare!, 0);
+  const verdict = !comparison ? (
+    <>No top-player data for {boss} yet, so there&apos;s nothing to compare your casts with. It updates weekly.</>
+  ) : summaries.length === 0 ? (
+    <>Nothing to flag: {comparison.amount ? "on pace with top players" : "casting in line with top players"}.</>
+  ) : worth.length ? (
+    <>
+      {worth.length === 2 ? <strong className="text-gold">Two things</strong> : <strong className="text-gold">One thing</strong>} {worth.length === 2 ? "are" : "is"} worth about{" "}
+      {(worthTotal * 100).toFixed(1)}% damage: {worth.map((s) => midSentence(s.title)).join(", and ")}.
+    </>
+  ) : (
+    <>
+      Start with <strong className="text-gold">{midSentence(summaries[0]!.title)}</strong>.
+    </>
+  );
+
+  const ratio = comparison?.amount?.ratio ?? null;
+  const meters = comparison
+    ? [
+        ...(comparison.amount ? [{ label: "DPS vs top", value: percent(comparison.amount.ratio), share: comparison.amount.ratio, color: comparison.amount.ratio < 0.85 ? "var(--color-dmg)" : "var(--color-heal)" }] : []),
+        { label: "Casting", value: `${percent(comparison.activeTime.player)} / ${percent(comparison.activeTime.median)}`, share: comparison.activeTime.player, color: "var(--color-gold)" },
+        ...(potions.top ? [{ label: "Potions", value: `${potions.yours.length} / 2`, share: potions.yours.length / 2, color: "var(--color-debuff)" }] : []),
+        ...(comparison.itemLevel.player
+          ? [{ label: "Item level", value: `${comparison.itemLevel.player} / ${Math.round(comparison.itemLevel.median)}`, share: comparison.itemLevel.player / comparison.itemLevel.median, color: "var(--color-heal)" }]
+          : []),
+      ]
+    : [];
+
+  // D: only the moments that matter. Cooldown uses (the first one flagged when late), potions, a missing
+  // second potion, the longest idle stretches and deaths.
+  const late = new Set(timeline.findings.flatMap((f) => (f.kind === "late-cooldown" ? [f.abilityId] : [])));
+  const pins: TrackPin[] = [
+    ...result.cooldownLanes.flatMap((l) =>
+      l.used.map(([t], i) => ({
+        ms: t,
+        label: `${abilities[l.abilityId]?.name ?? "Cooldown"}${i === 0 && late.has(l.abilityId) ? " (late)" : ""}`,
+        tone: (i === 0 && late.has(l.abilityId) ? "bad" : "cooldown") as TrackPin["tone"],
+      })),
+    ),
+    ...potions.yours.map(([t]) => ({ ms: t, label: "Potion", tone: "cooldown" as const })),
+    ...(potions.top && potions.top.usedTwo >= 0.5 && potions.yours.length < 2 && potions.top.second
+      ? [{ ms: potions.top.second.median, label: "No 2nd potion", tone: "bad" as const }]
+      : []),
+    ...[...timeline.gaps]
+      .sort((a, b) => b.endMs - b.startMs - (a.endMs - a.startMs))
+      .slice(0, 2)
+      .map((g) => ({ ms: g.startMs, label: `Idle ${Math.round((g.endMs - g.startMs) / 1000)}s`, tone: "bad" as const })),
+    ...myDeaths.map((d) => ({ ms: d.fightTimeMs, label: "Died", tone: "bad" as const })),
+  ];
+  const activeMs = Object.fromEntries(result.cooldownLanes.map((l) => [l.abilityId, l.used[0] ? l.used[0][1] - l.used[0][0] : 0]));
 
   const tabs: Tab[] = [
     {
@@ -66,11 +124,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       content: (
         <div className="space-y-6">
           <PullStart timeline={timeline} abilities={abilities} />
-          {tops.length ? (
-            <OpenerCompare steps={result.openerSteps} you={playerCasts} tops={tops} cooldownIds={cooldownIds} abilities={abilities} windowMs={OPENER_MS} />
-          ) : (
-            <NoBenchmark />
-          )}
+          <OpenerTable steps={result.openerSteps} abilities={abilities} topName={top1?.name ?? null} cooldownIds={cooldownIds} />
           <FirstUseTable timeline={timeline} abilities={abilities} />
         </div>
       ),
@@ -79,13 +133,7 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
       id: "cooldowns",
       label: "Cooldowns",
       badge: badge(findings.filter((f) => f.kind === "low-casts" && f.ability.benchmark.median <= 2).length),
-      content: <CooldownCompare cooldownIds={cooldownIds} you={playerCasts} durationMs={durationMs} top={top1} comparison={comparison} abilities={abilities} />,
-    },
-    {
-      id: "potions",
-      label: "Potions",
-      badge: badge(result.potions.top && result.potions.top.usedTwo >= 0.5 && result.potions.yours.length < 2 ? 1 : 0),
-      content: <PotionCompare potions={result.potions} durationMs={durationMs} abilities={abilities} />,
+      content: <CooldownTable cooldownIds={cooldownIds} you={playerCasts} top={top1} comparison={comparison} abilities={abilities} />,
     },
     {
       id: "rotation",
@@ -96,11 +144,11 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
           <RotationTable comparison={comparison} abilities={abilities} />
           <PhaseActivityTable timeline={timeline} />
           <div>
-            <h3 className="mb-2 font-medium text-fg">Buff uptime</h3>
+            <h3 className="mb-2 font-bold text-fg">Buff uptime</h3>
             <BuffTable comparison={comparison} abilities={abilities} />
           </div>
           <div>
-            <h3 className="mb-2 font-medium text-fg">Targets</h3>
+            <h3 className="mb-2 font-bold text-fg">Targets</h3>
             <TargetTable comparison={comparison} />
           </div>
         </div>
@@ -110,114 +158,90 @@ export default async function PlayerPage({ params }: { params: Promise<{ code: s
     },
     {
       id: "casts",
-      label: "Every cast",
-      content: <CastLog you={playerCasts} top={top1} durationMs={durationMs} cooldownIds={cooldownIds} utilityIds={result.utilityIds} abilities={abilities} />,
+      label: "Every spell",
+      content: <SpellLanes you={playerCasts} top={top1} durationMs={durationMs} cooldownIds={cooldownIds} utilityIds={result.utilityIds} abilities={abilities} />,
     },
   ];
 
   return (
-    <DisplayModeProvider>
-      <div className="space-y-6">
-        <RememberCharacter name={player.name} />
-        <Breadcrumbs
-          items={[
-            { label: "Home", href: "/" },
-            { label: report.title, href: `/r/${code}` },
-            { label: `${fight.name} pull ${pull}`, href: `/r/${code}/${fight.id}` },
-            { label: player.name },
-          ]}
-        />
-        <ViewNav active="personal" personalHref={`/r/${code}/${fight.id}/${player.id}`} raidHref={raidHref} />
+    <div className="space-y-5">
+      <RememberCharacter name={player.name} />
+      <Breadcrumbs
+        items={[
+          { label: "Home", href: "/" },
+          { label: report.title, href: `/r/${code}` },
+          { label: `${fight.name} pull ${pull}`, href: `/r/${code}/${fight.id}` },
+          { label: player.name },
+        ]}
+      />
 
-        <header className="border-l-[3px] pl-3" style={{ borderColor: classColor(player.classSlug) }}>
-          <h1 className="text-2xl font-semibold leading-tight" style={{ color: classColor(player.classSlug) }}>
-            {player.name}
-          </h1>
-          <p className="text-sm text-muted">
-            {spec} · {boss} · pull {pull} ·{" "}
-            {fight.kill ? <span className="text-heal">kill</span> : <span className="text-warn">wipe {fight.bossPercentage?.toFixed(1)}%</span>} ·{" "}
-            <span className="num">{fightTime(durationMs)}</span>
-          </p>
-          <p className="text-xs text-faint">
-            {consumables.combatPotions} combat {consumables.combatPotions === 1 ? "potion" : "potions"}
-            {myDeaths.length > 0 && (
-              <>
-                {" "}
-                ·{" "}
-                <Link href={raidHref} className="text-dmg hover:underline">
-                  died at {myDeaths.map((d) => fightTime(d.fightTimeMs)).join(", ")}: see why in the raid view
-                </Link>
-              </>
-            )}
-          </p>
-        </header>
+      <Hero
+        name={player.name}
+        color={classColor(player.classSlug)}
+        subtitle={`${spec}${comparison?.itemLevel.player ? ` · ${comparison.itemLevel.player} ilvl` : ""}`}
+        facts={
+          <>
+            Pull {pull} — {boss} — {fight.kill ? <span className="text-heal">kill</span> : <span className="text-warn">wipe {fight.bossPercentage?.toFixed(1)}%</span>} — {fightTime(durationMs)}
+            {comparison?.amount && <> — {compact(comparison.amount.player)} dps</>}
+          </>
+        }
+        ratio={ratio}
+        verdict={verdict}
+        meters={meters}
+      />
 
-        {comparison && (
-          <section>
-            <div className="flex flex-wrap border-y border-line py-2">
-              {comparison.amount && (
-                <Stat
-                  label="DPS"
-                  value={compact(comparison.amount.player)}
-                  sub={
-                    comparison.amount.similar ? (
-                      <span title={`Median of the ${comparison.amount.similar.n} top players whose kills were closest in length to this pull. Longer fights mean lower DPS for everyone.`}>
-                        {percent(comparison.amount.ratio)} of {compact(comparison.amount.similar.median)}: top kills of{" "}
-                        {comparison.amount.similar.minMs === comparison.amount.similar.maxMs
-                          ? fightTime(comparison.amount.similar.minMs)
-                          : `${fightTime(comparison.amount.similar.minMs)}–${fightTime(comparison.amount.similar.maxMs)}`}
-                      </span>
-                    ) : (
-                      `${percent(comparison.amount.ratio)} of top median ${compact(comparison.amount.median)}`
-                    )
-                  }
-                  tone={comparison.amount.ratio < 0.85 ? "bad" : comparison.amount.ratio >= 1 ? "good" : undefined}
-                />
-              )}
-              <Stat
-                label="Casting"
-                value={percent(comparison.activeTime.player)}
-                sub={`top ${percent(comparison.activeTime.median)}`}
-                tone={comparison.activeTime.status === "low" ? "bad" : undefined}
-              />
-              <Stat label="Item level" value={comparison.itemLevel.player ?? "–"} sub={`top ${Math.round(comparison.itemLevel.median)}`} />
-              <Stat label="Length" value={fightTime(comparison.durationMs.player)} sub={`top kills ${fightTime(comparison.durationMs.median)}`} />
-            </div>
-            <p className="mt-1.5 text-xs text-faint">
-              vs top {comparison.sampleSize} {spec} on {boss}
-              {benchmarkWeek ? `, ${weekLabel(benchmarkWeek)}` : ""}. Top players have better gear and shorter kills; read gaps as direction.
-              {comparison.insufficient && " Small sample."}
-              {comparison.amount === null && " Healers: DPS not compared."}
-            </p>
-          </section>
-        )}
+      {myDeaths.length > 0 && (
+        <p className="border border-dmg/40 bg-panel px-4 py-2.5 text-sm">
+          <span className="text-dmg">You died at {myDeaths.map((d) => fightTime(d.fightTimeMs)).join(", ")}.</span>{" "}
+          <Link href={raidHref} className={linkClass}>
+            See why in the raid view
+          </Link>
+        </p>
+      )}
 
-        <Section title="Rotation mistakes" meta={findings.length ? `${findings.length} found, biggest gain first` : undefined}>
-          {!comparison ? (
-            <p className="pb-3 text-sm text-muted">No top-player data for {boss} yet (updated weekly), so there's nothing to compare your casts with.</p>
-          ) : findings.length === 0 ? (
-            <p className="pb-3 text-sm text-heal">Nothing to flag: {comparison.amount ? "on pace with top players" : "casting in line with top players"}.</p>
-          ) : (
+      <NextPulls items={summaries.slice(0, 3)} abilities={abilities} />
+
+      {findings.length > 3 && (
+        <Section title="More rotation mistakes" meta={`${findings.length - 3} more, biggest gain first`}>
+          <details>
+            <summary className="cursor-pointer pb-2 text-sm text-muted hover:text-fg">Show them</summary>
             <ol>
-              {findings.map((f, i) => (
-                <PerfFindingCard key={i} index={i + 1} finding={f} abilities={abilities} amount={amount} />
+              {findings.slice(3).map((f, i) => (
+                <PerfFindingCard key={i} index={i + 4} finding={f} abilities={abilities} amount={amount} />
               ))}
             </ol>
-          )}
+          </details>
         </Section>
+      )}
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
-          <span className="text-xs text-faint">Show casts as</span>
-          <DisplaySwitch />
-        </div>
+      <TimelineSwitch
+        views={{
+          list: <CastListView you={playerCasts} top={top1} abilities={abilities} />,
+          lanes: <IconLanesView you={playerCasts} tops={tops} cooldownIds={cooldownIds} activeMs={activeMs} abilities={abilities} />,
+          spine: <SideBySideView steps={result.openerSteps.slice(0, 12)} abilities={abilities} players={tops.length} />,
+          availability: <AvailabilityView lanes={result.cooldownLanes} spanMs={span} abilities={abilities} topName={top1?.name ?? null} />,
+          events: <EventTrackView phases={result.phases} pins={pins} spanMs={durationMs} />,
+        }}
+      />
+
+      <PotionLanes potions={potions} durationMs={durationMs} abilities={abilities} />
+
+      <Section title="Details">
         <Tabs tabs={tabs} />
+      </Section>
 
-        <p className="border-t border-line pt-3 text-xs">
-          <a className={linkClass} href={`https://www.warcraftlogs.com/reports/${code}#fight=${fight.id}&source=${player.id}`} target="_blank" rel="noreferrer">
-            Open on Warcraft Logs
-          </a>
-        </p>
-      </div>
-    </DisplayModeProvider>
+      <p className="text-xs text-muted">
+        {comparison && (
+          <>
+            Compared with the top {comparison.sampleSize} {spec} on {boss}
+            {benchmarkWeek ? `, ${weekLabel(benchmarkWeek)}` : ""}. Top players have better gear and shorter kills; read gaps as direction.
+            {comparison.insufficient && " Small sample."}{" "}
+          </>
+        )}
+        <a className={linkClass} href={`https://www.warcraftlogs.com/reports/${code}#fight=${fight.id}&source=${player.id}`} target="_blank" rel="noreferrer">
+          Open on Warcraft Logs
+        </a>
+      </p>
+    </div>
   );
 }

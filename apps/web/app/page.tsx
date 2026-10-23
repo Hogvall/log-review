@@ -92,11 +92,11 @@ export default function Home() {
               role="radio"
               aria-checked={active}
               onClick={() => choose(v.id)}
-              className={`flex flex-col items-start p-4 text-left ${active ? "bg-raised" : "bg-ink hover:bg-panel"}`}
+              className={`flex flex-col items-start p-4 text-left ${active ? "bg-panel shadow-[inset_0_3px_0_var(--color-gold)]" : "bg-ink hover:bg-panel"}`}
             >
               <span className="flex w-full items-center justify-between">
                 <span className={`text-sm font-semibold uppercase tracking-[0.07em] ${active ? "text-fg" : "text-muted"}`}>{v.title}</span>
-                <span aria-hidden className={`h-3 w-3 border ${active ? "border-fg bg-fg" : "border-faint"}`} />
+                <span aria-hidden className={`h-3 w-3 border ${active ? "border-gold bg-gold" : "border-faint"}`} />
               </span>
               <span className="mt-1 text-sm text-fg/85">{v.lead}</span>
               <ul className="mt-3 space-y-1 text-sm text-muted">
@@ -130,7 +130,7 @@ export default function Home() {
         <button
           type="submit"
           disabled={!url.trim()}
-          className="border border-fg bg-fg px-5 py-2.5 text-sm font-semibold text-ink hover:bg-transparent hover:text-fg disabled:opacity-30"
+          className="border border-gold bg-gold px-5 py-2.5 text-sm font-bold text-ink hover:bg-transparent hover:text-gold disabled:opacity-30"
         >
           Open {view === "personal" ? "personal view" : "raid view"}
         </button>

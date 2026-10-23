@@ -107,3 +107,39 @@ export function topPotionUse(tops: TopTimeline[], potionIds: Set<number>): TopPo
     rows,
   };
 }
+
+export interface Availability {
+  /** When the cooldown's effect was running after each cast. */
+  used: [number, number][];
+  /** Stretches when it was ready (by top players' pace) and you didn't press it. */
+  idle: [number, number][];
+}
+
+/** Ready stretches shorter than this aren't worth drawing: a GCD or two of overlap with other buttons. */
+const MIN_IDLE_MS = 3000;
+
+/**
+ * When a cooldown was running and when it sat ready. Its recharge isn't in the log, so it's taken from top
+ * players' pace: ready at their median first use, then `everyMs` after each of your casts.
+ */
+export function cooldownAvailability(
+  casts: CastMark[],
+  abilityId: number,
+  opts: { firstMs: number; everyMs: number; activeMs: number; untilMs: number },
+): Availability {
+  const times = casts.filter(([, id]) => id === abilityId).map(([t]) => t).sort((a, b) => a - b);
+  const used: [number, number][] = [];
+  const idle: [number, number][] = [];
+  let ready = opts.firstMs;
+  const addIdle = (from: number, to: number) => {
+    if (to - from >= MIN_IDLE_MS) idle.push([from, to]);
+  };
+  for (const t of times) {
+    if (t > opts.untilMs) break;
+    addIdle(ready, t);
+    used.push([t, Math.min(opts.untilMs, t + opts.activeMs)]);
+    ready = Math.max(ready, t + opts.everyMs);
+  }
+  addIdle(ready, opts.untilMs);
+  return { used, idle };
+}

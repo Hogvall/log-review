@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openerSteps, topPotionUse } from "./top-casts";
+import { cooldownAvailability, openerSteps, topPotionUse } from "./top-casts";
 
 const top = (rank: number, casts: [number, number][], durationMs = 300_000) => ({ rank, name: `P${rank}`, durationMs, casts });
 
@@ -41,5 +41,20 @@ describe("topPotionUse", () => {
     expect(r.second?.median).toBe(190_000);
     expect(r.mostCommon).toEqual({ abilityId: 10, share: 2 / 3 });
     expect(r.rows.map((x) => x.rank)).toEqual([1, 2, 3]);
+  });
+});
+
+describe("cooldownAvailability", () => {
+  it("marks ready-but-unused stretches by top players' pace", () => {
+    const a = cooldownAvailability([[7000, 5], [130_000, 5], [1000, 9]], 5, { firstMs: 500, everyMs: 120_000, activeMs: 10_000, untilMs: 300_000 });
+    expect(a.used).toEqual([[7000, 17_000], [130_000, 140_000]]);
+    // Ready at 0.5s, pressed at 7s; ready again at 127s, pressed at 130s; ready at 250s until the end.
+    expect(a.idle).toEqual([[500, 7000], [127_000, 130_000], [250_000, 300_000]]);
+  });
+
+  it("is all idle when never pressed, and ignores casts after the cutoff", () => {
+    const a = cooldownAvailability([[200_000, 5]], 5, { firstMs: 0, everyMs: 60_000, activeMs: 0, untilMs: 100_000 });
+    expect(a.used).toEqual([]);
+    expect(a.idle).toEqual([[0, 100_000]]);
   });
 });

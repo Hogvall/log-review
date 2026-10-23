@@ -37,6 +37,7 @@ import {
   isExecuteSpell,
   isRaidUtility,
   isUtilitySpell,
+  cooldownAvailability,
   openerSteps,
   potionUses,
   topPotionUse,
@@ -465,6 +466,17 @@ export interface PotionReview {
   healing: { you: number; topMedian: number | null };
 }
 
+/** One DPS cooldown over the pull: when it ran, when it sat ready, and #1's uses. */
+export interface CooldownLane {
+  abilityId: number;
+  used: [number, number][];
+  idle: [number, number][];
+  topUsed: [number, number][];
+  casts: number;
+  /** Uses that fit in your time alive at top players' pace. */
+  fits: number | null;
+}
+
 export interface PlayerAnalysis {
   report: ReportOverview;
   fight: Fight;
@@ -495,6 +507,10 @@ export interface PlayerAnalysis {
   potions: PotionReview;
   /** Movement, defensives and utility: shown in cast logs, left out of comparisons. */
   utilityIds: number[];
+  /** DPS cooldowns as running / ready-but-unused stretches, from top players' pace. */
+  cooldownLanes: CooldownLane[];
+  /** Until your death, or the end of the pull. */
+  aliveMs: number;
   playerCasts: [number, number][];
   /** DPS cooldowns (and the combat potion) for the cooldown chart; no defensives or movement. */
   cooldownIds: number[];
@@ -694,6 +710,23 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     ? openerSteps(perf.casts, tops, { windowMs: OPENER_MS, steps: OPENER_STEPS, ignore: new Set([...utilityIds, ...hiddenIds]) })
     : [];
 
+  // Each DPS cooldown's running and ready stretches. Its effect lasts as long as its buff, when the buff
+  // shares the spell's ID; its recharge comes from top players' pace.
+  const cooldownLanes: CooldownLane[] = dpsCooldowns.flatMap((a) => {
+    if (!a.expected) return [];
+    const activeMs = a.casts ? Math.min(30_000, ((perf.buffUptime[a.abilityId] ?? 0) * durationMs) / a.casts) : 0;
+    const topRuns = (top?.timeline ?? []).filter(([, id]) => id === a.abilityId).map(([t]) => [t, t + activeMs] as [number, number]);
+    return [
+      {
+        abilityId: a.abilityId,
+        ...cooldownAvailability(perf.casts, a.abilityId, { firstMs: a.expected.firstMs, everyMs: a.expected.everyMs, activeMs, untilMs: aliveMs }),
+        topUsed: topRuns,
+        casts: a.casts,
+        fits: a.expected.casts,
+      },
+    ];
+  });
+
   // Boss tips for every ability that hit this player.
   const boss = getBoss(fight.encounterID);
   const tips: Record<number, AbilityTip> = {};
@@ -733,6 +766,8 @@ export async function getPlayerAnalysis(code: string, fightId: number, actorId: 
     openerSteps: opener,
     potions,
     utilityIds: [...utilityIds, ...hiddenIds],
+    cooldownLanes,
+    aliveMs,
     playerCasts: perf.casts,
     cooldownIds: [...dpsCooldowns.map((a) => a.abilityId), ...potionIds.slice(0, 1)],
     snapshotWeek: avoidability.week,

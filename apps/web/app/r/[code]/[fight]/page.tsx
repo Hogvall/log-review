@@ -1,7 +1,6 @@
 import { ErrorPanel, NotFoundPanel } from "@/components/error-panel";
 import { type PickerPlayer, PlayerPicker } from "@/components/player-picker";
 import { Breadcrumbs } from "@/components/ui";
-import { ViewNav } from "@/components/view-nav";
 import { getFight, getPlayers } from "@/lib/data";
 import { difficultyName, fightTime } from "@/lib/format";
 
@@ -34,11 +33,6 @@ export default async function FightPage({ params }: { params: Promise<{ code: st
             { label: report.title, href: `/r/${code}` },
             { label: `${fight.name} pull ${pull}` },
           ]}
-        />
-        <ViewNav
-          active="personal"
-          personalHref={`/r/${code}/${fightId}`}
-          raidHref={fight.difficulty ? `/r/${code}/raid/${fight.encounterID}-${fight.difficulty}?scope=${fightId}` : `/r/${code}?view=raid`}
         />
         <h1 className="text-2xl font-semibold text-fg">
           {fight.name} <span className="text-muted">{difficultyName(fight.difficulty)}</span>

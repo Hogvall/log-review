@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { abilityIconUrl, wowheadSpellUrl } from "@/lib/format";
 
-/** A flat block separated by a rule, with a small uppercase header. The basic building block instead of cards. */
+/** A HUD panel with a small gold header. The basic building block of every page. */
 export function Section({
   title,
   meta,
@@ -17,10 +17,10 @@ export function Section({
   className?: string;
 }) {
   return (
-    <section id={id} className={`border-t border-line ${className}`}>
-      <header className="flex flex-wrap items-baseline justify-between gap-x-4 py-2">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted">{title}</h2>
-        {meta && <span className="text-xs text-faint">{meta}</span>}
+    <section id={id} className={`border border-line bg-panel px-4 pb-4 sm:px-5 ${className}`}>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-4 pt-4 pb-3">
+        <h2 className="hud-title">{title}</h2>
+        {meta && <span className="text-xs text-muted">{meta}</span>}
       </header>
       {children}
     </section>
@@ -35,7 +35,7 @@ export function Panel({ children, className = "" }: { children: ReactNode; class
 export function SectionTitle({ children, hint }: { children: ReactNode; hint?: ReactNode }) {
   return (
     <div className="mb-2">
-      <h2 className="text-[11px] font-semibold uppercase tracking-[0.07em] text-muted">{children}</h2>
+      <h2 className="hud-title">{children}</h2>
       {hint && <p className="text-sm text-faint">{hint}</p>}
     </div>
   );
@@ -96,3 +96,66 @@ export function Breadcrumbs({ items }: { items: { label: string; href?: string }
 
 /** A plain text link. */
 export const linkClass = "text-fg underline decoration-line underline-offset-4 hover:decoration-fg";
+
+/** A spell's icon as a square, linked to Wowhead. Cooldowns get a gold frame. */
+export function SpellIcon({
+  id,
+  name,
+  icon,
+  size = 28,
+  gold,
+  title,
+}: {
+  id: number;
+  name?: string;
+  icon?: string;
+  size?: number;
+  gold?: boolean;
+  title?: string;
+}) {
+  return (
+    <a href={wowheadSpellUrl(id)} target="_blank" rel="noreferrer" title={title ?? name} className="block shrink-0" style={{ width: size, height: size }}>
+      {icon ? (
+        <img
+          src={abilityIconUrl(icon)}
+          alt={name ?? `Spell ${id}`}
+          width={size}
+          height={size}
+          className={`block box-border ${gold ? "border-2 border-gold" : "border border-black"}`}
+          style={{ width: size, height: size }}
+        />
+      ) : (
+        <span className={`block h-full w-full bg-line ${gold ? "border-2 border-gold" : "border border-black"}`} />
+      )}
+    </a>
+  );
+}
+
+/** A meter in 20 segments, like a game resource bar. */
+export function Meter({ label, value, share, color }: { label: string; value: ReactNode; share: number; color: string }) {
+  const lit = Math.round(Math.max(0, Math.min(1, share)) * 20);
+  return (
+    <div>
+      <div className="flex justify-between gap-3 text-xs">
+        <span className="font-semibold uppercase tracking-[0.08em] text-muted">{label}</span>
+        <span className="num font-bold text-fg">{value}</span>
+      </div>
+      <div className="mt-1 grid grid-cols-[repeat(20,minmax(0,1fr))] gap-0.5" aria-hidden>
+        {Array.from({ length: 20 }, (_, i) => (
+          <span key={i} className="h-2" style={{ background: i < lit ? color : "var(--color-line)" }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Dark or light text, whichever reads on a class color. */
+export function textOn(hex: string): string {
+  const n = parseInt(hex.replace("#", ""), 16);
+  const lin = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  return l > 0.2 ? "#0d1220" : "#ffffff";
+}

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import type { Fight } from "@log-review/wcl";
 import { ErrorPanel } from "@/components/error-panel";
 import { Breadcrumbs, Section } from "@/components/ui";
-import { type AppView, ViewNav } from "@/components/view-nav";
+import type { AppView } from "@/components/view-nav";
 import { getOverview } from "@/lib/data";
 import { difficultyName, fightTime } from "@/lib/format";
 
@@ -12,17 +12,17 @@ export const dynamic = "force-dynamic";
 /** Lower is better: kills first, then the lowest boss health. */
 const progress = (f: Fight) => (f.kill ? -1 : (f.bossPercentage ?? 100));
 
-const buttonClass = "border border-line px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-fg hover:border-fg";
+const buttonClass = "border border-line px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.1em] text-fg hover:border-gold hover:text-gold";
 
 export default async function ReportPage({
   params,
   searchParams,
 }: {
   params: Promise<{ code: string }>;
-  searchParams: Promise<{ fight?: string; view?: string }>;
+  searchParams: Promise<{ fight?: string; view?: string; actor?: string }>;
 }) {
   const { code } = await params;
-  const { fight, view: viewParam } = await searchParams;
+  const { fight, view: viewParam, actor } = await searchParams;
   const view: AppView = viewParam === "raid" ? "raid" : "personal";
 
   let report;
@@ -34,7 +34,8 @@ export default async function ReportPage({
   // Links that name a pull skip ahead: to its player list, or to the raid view of that pull.
   const linked = fight === "last" ? report.fights.at(-1) : fight ? report.fights.find((f) => f.id === Number(fight)) : undefined;
   if (linked) {
-    if (view === "raid" && linked.difficulty) redirect(`/r/${code}/raid/${linked.encounterID}-${linked.difficulty}?scope=${linked.id}`);
+    const boss = `/r/${code}/raid/${linked.encounterID}-${linked.difficulty}`;
+    if (view === "raid" && linked.difficulty) redirect(actor && /^\d+$/.test(actor) ? `${boss}/players/${actor}?scope=${linked.id}` : `${boss}?scope=${linked.id}`);
     redirect(`/r/${code}/${linked.id}`);
   }
 
@@ -51,7 +52,6 @@ export default async function ReportPage({
     <div className="space-y-6">
       <div>
         <Breadcrumbs items={[{ label: "Home", href: "/" }, { label: report.title }]} />
-        <ViewNav active={view} personalHref={`/r/${code}`} raidHref={`/r/${code}?view=raid`} />
         <h1 className="text-2xl font-semibold text-fg">{report.title}</h1>
         <p className="text-sm text-muted">
           {report.zone?.name} ·{" "}

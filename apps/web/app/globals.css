@@ -1,26 +1,28 @@
 @import "tailwindcss";
 
 /*
- * Raid-tool palette: neutral near-black, warm off-white text, and color only where it carries meaning
- * (class colors, damage, healing, debuffs). No brand accent.
+ * Raid HUD palette: dark slate panels, gold for cooldowns and the active view, coral for mistakes.
+ * Class colors, damage and healing keep their meaning everywhere.
  */
 @theme {
-  --color-ink: #0f0f11;
-  --color-panel: #151518;
-  --color-raised: #1c1c20;
-  --color-line: #2a2a2f;
-  --color-fg: #e4e0d8;
-  --color-muted: #9b968c;
-  --color-faint: #67635c;
-  --color-dmg: #e5735f;
-  --color-heal: #86c27d;
-  --color-warn: #d9a74a;
-  --color-debuff: #a991de;
+  --color-ink: #0d1220;
+  --color-panel: #161d2e;
+  --color-raised: #0f1626;
+  --color-line: #26314a;
+  --color-fg: #e6e9f2;
+  --color-muted: #a9b3c9;
+  --color-faint: #8590aa;
+  --color-dmg: #ff8a7a;
+  --color-heal: #7ee0a1;
+  --color-warn: #e8b64c;
+  --color-gold: #e8b64c;
+  --color-debuff: #b78cff;
   --color-shield: #7fb0d6;
-  --color-accent: #e4e0d8;
+  --color-you: #3fc7eb;
+  --color-accent: #e8b64c;
 
-  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: var(--font-inter-tight), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-space-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 html {
@@ -35,4 +37,13 @@ body {
 .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+}
+
+/* Section and panel headings: small caps in gold. */
+.hud-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-gold);
 }

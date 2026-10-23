@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type NightDeath, type NightPull, bestPulls, deathCause, dpsCheck, nightDeaths } from "./index";
+import { type NightDeath, type NightPull, bestPulls, deathCause, dpsCheck, listNightDeaths, nightDeaths } from "./index";
 
 const MARK_BLOOD = { id: 1284506, name: "Mark of Blood" };
 const MARK_ACID = { id: 1284500, name: "Mark of Acid" };
@@ -111,5 +111,18 @@ describe("dpsCheck", () => {
   it("checks the furthest real pulls", () => {
     const night = [pull(1, 0, 20_000, 1), pull(2, 1e6, 300_000, 40), pull(3, 2e6, 400_000, 7), pull(4, 3e6, 430_000, 3)];
     expect(bestPulls(night, 2).map((p) => p.id)).toEqual([4, 3]);
+  });
+});
+
+describe("listNightDeaths", () => {
+  it("lists deaths with their category and real cause, skipping resets", () => {
+    const pulls = [pull(1, 0, 200_000, 50), pull(2, 300_000, 10_000, 99)];
+    const deaths = [
+      death(1, 60_000, 11, [{ ...DROPLETS, total: 10 }, { ...MARK_BLOOD, total: 900 }]),
+      death(2, 305_000, 12, [{ ...MARK_ACID, total: 100 }]),
+    ];
+    const list = listNightDeaths(pulls, deaths);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ fight: 1, fightTimeMs: 60_000, playerId: 11, category: "early", mattered: true, cause: { id: MARK_BLOOD.id } });
   });
 });

@@ -2,7 +2,7 @@
  * A raid leader's view of a whole night on one boss: what people die to across all pulls, and, for a boss
  * the raid hasn't killed, whether its damage is enough to kill it.
  */
-import { classifyDeaths } from "./deaths";
+import { type DeathCategory, classifyDeaths } from "./deaths";
 import { summarize } from "./stats";
 
 /** Pulls shorter than this are resets, not attempts. */
@@ -77,6 +77,42 @@ export function deathCause(d: NightDeath): { id: number; name: string } | null {
 }
 
 export const countedPulls = (pulls: NightPull[]) => pulls.filter((p) => p.endTime - p.startTime >= MIN_PULL_MS);
+
+export interface ListedDeath {
+  fight: number;
+  fightTimeMs: number;
+  playerId: number;
+  name: string;
+  category: DeathCategory;
+  /** Before the wipe or among its first deaths. */
+  mattered: boolean;
+  cause: { id: number; name: string } | null;
+}
+
+/** Every death in the counted pulls, in order, with its place in the pull's wipe and what actually killed them. */
+export function listNightDeaths(allPulls: NightPull[], deaths: NightDeath[]): ListedDeath[] {
+  const out: ListedDeath[] = [];
+  for (const pull of countedPulls(allPulls).sort((a, b) => a.startTime - b.startTime)) {
+    const own = deaths.filter((d) => d.fight === pull.id);
+    const { deaths: classified } = classifyDeaths(
+      own.map((d) => ({ timestamp: d.timestamp, targetID: d.playerId })),
+      { fightStartTime: pull.startTime, raidSize: pull.raidSize, kill: pull.kill },
+    );
+    for (const c of classified) {
+      const d = own.find((x) => x.timestamp === c.timestamp && x.playerId === c.targetID)!;
+      out.push({
+        fight: pull.id,
+        fightTimeMs: c.fightTimeMs,
+        playerId: d.playerId,
+        name: d.name,
+        category: c.category,
+        mattered: c.category === "early" || c.category === "wipe-start",
+        cause: deathCause(d),
+      });
+    }
+  }
+  return out;
+}
 
 export function nightDeaths(allPulls: NightPull[], deaths: NightDeath[]): NightDeaths {
   const pulls = countedPulls(allPulls).sort((a, b) => a.startTime - b.startTime);

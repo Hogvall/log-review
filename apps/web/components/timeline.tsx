@@ -63,7 +63,7 @@ export function PullStart({ timeline, abilities }: { timeline: TimelineReview; a
   );
 }
 
-function CastStrip({ casts, windowMs, cooldowns, abilities }: { casts: CastMark[]; windowMs: number; cooldowns: Set<number>; abilities: AbilityInfo }) {
+export function CastStrip({ casts, windowMs, cooldowns, abilities }: { casts: CastMark[]; windowMs: number; cooldowns: Set<number>; abilities: AbilityInfo }) {
   return (
     <div className="relative h-7 bg-line/40">
       {casts.map(([t, id], i) => {
@@ -91,80 +91,45 @@ function CastStrip({ casts, windowMs, cooldowns, abilities }: { casts: CastMark[
   );
 }
 
-/** The first 30 seconds as cast strips, plus when each cooldown was first pressed. */
-export function Opener({ timeline, abilities, topName }: { timeline: TimelineReview; abilities: AbilityInfo; topName: string | null }) {
+/** When each DPS cooldown (and the potion) was first pressed: you, top players' median and #1. */
+export function FirstUseTable({ timeline, abilities }: { timeline: TimelineReview; abilities: AbilityInfo }) {
   const { opener } = timeline;
-  const cooldowns = new Set(opener.firstUses.map((f) => f.abilityId));
   const late = new Map(timeline.findings.flatMap((f) => (f.kind === "late-cooldown" ? [[f.abilityId, f.playerMs - f.topMs] as const] : [])));
   const hasMedian = opener.firstUses.some((f) => f.median);
-  const ticks = Array.from({ length: opener.windowMs / 5000 + 1 }, (_, i) => i * 5000);
+  if (!opener.firstUses.length) return null;
   return (
     <div>
-      <Heading
-        hint={
-          <>
-            Every cast in the first {opener.windowMs / 1000} seconds next to the #1 player's. Cooldowns are outlined. Hover an icon for its time.
-            {hasMedian && " First uses compare with the top players' median (Top) and #1."}
-          </>
-        }
-      >
-        Opener
-      </Heading>
-      <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <div className="grid min-w-[640px] grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 text-xs text-muted">
-          <span>You</span>
-          <CastStrip casts={opener.you} windowMs={opener.windowMs} cooldowns={cooldowns} abilities={abilities} />
-          {opener.top && (
-            <>
-              <span className="truncate" title={topName ?? undefined}>
-                #1
-              </span>
-              <CastStrip casts={opener.top} windowMs={opener.windowMs} cooldowns={cooldowns} abilities={abilities} />
-            </>
-          )}
-          <span />
-          <div className="relative h-4 text-faint">
-            {ticks.map((t) => (
-              <span key={t} className="num absolute -translate-x-1/2" style={{ left: `${(t / opener.windowMs) * 100}%` }}>
-                {t / 1000}s
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {opener.firstUses.length > 0 && (
-        <table className="mt-3 w-full max-w-lg text-sm">
-          <thead className="text-left text-[11px] uppercase tracking-[0.07em] text-faint">
-            <tr className="border-b border-line">
-              <th className="pb-1 pr-3 font-medium">First used</th>
-              <th className="pb-1 pr-3 text-right font-medium">You</th>
-              {hasMedian && <th className="pb-1 pr-3 text-right font-medium">Top</th>}
-              <th className="pb-1 pr-3 text-right font-medium">#1</th>
-              <th className="pb-1 text-right font-medium" />
+      <Heading hint={hasMedian ? "Top is the median of top players who use it; #1 is the best player of your spec." : undefined}>First use of each cooldown</Heading>
+      <table className="w-full max-w-lg text-sm">
+        <thead className="text-left text-[11px] uppercase tracking-[0.07em] text-faint">
+          <tr className="border-b border-line">
+            <th className="pb-1 pr-3 font-medium">Cooldown</th>
+            <th className="pb-1 pr-3 text-right font-medium">You</th>
+            {hasMedian && <th className="pb-1 pr-3 text-right font-medium">Top</th>}
+            <th className="pb-1 pr-3 text-right font-medium">#1</th>
+            <th className="pb-1 text-right font-medium" />
+          </tr>
+        </thead>
+        <tbody>
+          {opener.firstUses.map((f) => (
+            <tr key={f.abilityId} className="border-b border-line/40">
+              <td className="py-1.5 pr-3">
+                <Ability id={f.abilityId} name={abilities[f.abilityId]?.name} icon={abilities[f.abilityId]?.icon} />
+              </td>
+              <td className={`num py-1.5 pr-3 text-right ${late.has(f.abilityId) ? "text-dmg" : "text-fg/85"}`}>
+                {f.player == null ? "never" : secsOrClock(f.player)}
+              </td>
+              {hasMedian && (
+                <td className="num py-1.5 pr-3 text-right text-muted" title={f.median ? `${percent(f.median.usedBy)} of top players use it` : undefined}>
+                  {f.median ? secsOrClock(f.median.median) : "–"}
+                </td>
+              )}
+              <td className="num py-1.5 pr-3 text-right text-faint">{f.top == null ? "–" : secsOrClock(f.top)}</td>
+              <td className="num py-1.5 text-right text-xs text-dmg">{late.get(f.abilityId) != null ? `${secs(late.get(f.abilityId)!)} late` : ""}</td>
             </tr>
-          </thead>
-          <tbody>
-            {opener.firstUses.map((f) => (
-              <tr key={f.abilityId} className="border-b border-line/40">
-                <td className="py-1.5 pr-3">
-                  <Ability id={f.abilityId} name={abilities[f.abilityId]?.name} icon={abilities[f.abilityId]?.icon} />
-                </td>
-                <td className={`num py-1.5 pr-3 text-right ${late.has(f.abilityId) ? "text-dmg" : "text-fg/85"}`}>
-                  {f.player == null ? "never" : secsOrClock(f.player)}
-                </td>
-                {hasMedian && (
-                  <td className="num py-1.5 pr-3 text-right text-muted" title={f.median ? `${percent(f.median.usedBy)} of top players use it` : undefined}>
-                    {f.median ? secsOrClock(f.median.median) : "–"}
-                  </td>
-                )}
-                <td className="num py-1.5 pr-3 text-right text-faint">{f.top == null ? "–" : secsOrClock(f.top)}</td>
-                <td className="num py-1.5 text-right text-xs text-dmg">{late.get(f.abilityId) != null ? `${secs(late.get(f.abilityId)!)} late` : ""}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

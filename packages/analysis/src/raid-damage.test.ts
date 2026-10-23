@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { meleeIsTankMechanic } from "./benchmark";
 import { type PullDamageTaken, pullDamageTaken, raidDamageTaken } from "./raid-damage";
 
 const hit = (targetID: number, abilityGameID: number, amount: number, absorbed = 0) => ({ type: "damage", targetID, abilityGameID, amount, absorbed });
@@ -43,5 +44,31 @@ describe("raidDamageTaken", () => {
     const r = raidDamageTaken(pulls, avoidability, tank, new Set([1]));
     expect(r.players.find((p) => p.playerId === 1)!.avoidable).toBe(0);
     expect(r.avoidable).toBe(50);
+  });
+});
+
+describe("boss melee and tank-heavy abilities", () => {
+  const avoidability = meleeIsTankMechanic({ 1: { classification: "avoidable" as const }, 200: { classification: "avoidable" as const } });
+  const tank = meleeIsTankMechanic({ 1: { classification: "tank-mechanic" as const }, 200: { classification: "tank-mechanic" as const } });
+
+  it("never counts boss melee as avoidable, even for a DPS (the tank was probably dead)", () => {
+    expect(avoidability[1]!.classification).toBe("tank-mechanic");
+    const r = raidDamageTaken([{ pullId: 1, byPlayer: { 5: { 1: { hits: 3, total: 900 } } } }], avoidability, tank, new Set());
+    expect(r.avoidable).toBe(0);
+    expect(r.abilities[0]!.classification).toBe("tank-mechanic");
+  });
+
+  it("labels an ability by the tanks' view when tanks took most of it, and counts only the avoidable part", () => {
+    const r = raidDamageTaken(
+      [{ pullId: 1, byPlayer: { 7: { 200: { hits: 10, total: 1000 } }, 5: { 200: { hits: 1, total: 100 } } } }],
+      avoidability,
+      tank,
+      new Set([7]),
+    );
+    const a = r.abilities[0]!;
+    expect(a.classification).toBe("tank-mechanic");
+    expect(a.tankShare).toBeCloseTo(1000 / 1100);
+    // The DPS standing in the tank buster still counts.
+    expect(a.avoidable).toBe(100);
   });
 });

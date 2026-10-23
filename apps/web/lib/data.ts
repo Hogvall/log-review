@@ -37,6 +37,7 @@ import {
   isExecuteSpell,
   isRaidUtility,
   isUtilitySpell,
+  meleeIsTankMechanic,
   cooldownAvailability,
   openerSteps,
   potionUses,
@@ -334,7 +335,7 @@ export async function getAvoidability(
         ? { ...map[r.abilityId]!, classification: r.tankClassification, zeroShare: r.tankZeroShare }
         : map[r.abilityId]!;
   }
-  return { map, tankMap, week: latest.week };
+  return { map: meleeIsTankMechanic(map), tankMap: meleeIsTankMechanic(tankMap), week: latest.week };
 }
 
 export interface TopPlayer {

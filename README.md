@@ -1,5 +1,7 @@
 # Raid Log Coach
 
+Personal project for fun :)
+
 Paste a Warcraft Logs report and find out what killed you, whether you could have avoided it, and why your DPS is behind similar players.
 
 ## Setup
